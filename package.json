@@ -1,0 +1,46 @@
+{
+  "name": "checkmarx-mcp",
+  "version": "0.1.0",
+  "description": "MCP server providing AI coding agents with full programmatic access to the Checkmarx One security platform",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "checkmarx-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target node",
+    "start": "node dist/index.js",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write ."
+  },
+  "keywords": [
+    "mcp",
+    "checkmarx",
+    "security",
+    "sast",
+    "sca",
+    "vulnerability",
+    "ai",
+    "claude",
+    "cursor"
+  ],
+  "author": "Mykhailo Smolinskyi <nntndfrk@gmail.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "express": "^5.1.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/express": "^5.0.2",
+    "@types/node": "^22.15.3"
+  }
+}
