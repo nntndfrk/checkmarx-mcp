@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach, mock, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { CheckmarxAuth } from "../../src/api/auth.js";
 import type { Config } from "../../src/config.js";
 
@@ -110,9 +110,7 @@ describe("CheckmarxAuth", () => {
       return new Response(JSON.stringify(tokenResponse()), { status: 200 });
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(
-      makeConfig({ iamUrl: "https://eu.iam.checkmarx.net" }),
-    );
+    const auth = new CheckmarxAuth(makeConfig({ iamUrl: "https://eu.iam.checkmarx.net" }));
     await auth.getToken();
 
     expect(capturedUrl).toStartWith("https://eu.iam.checkmarx.net/auth/realms/test-tenant/");
@@ -148,7 +146,10 @@ describe("CheckmarxAuth", () => {
   it("throws on HTTP 400 with guidance", async () => {
     globalThis.fetch = mock(async () => {
       return new Response(
-        JSON.stringify({ error: "invalid_client", error_description: "Invalid client credentials" }),
+        JSON.stringify({
+          error: "invalid_client",
+          error_description: "Invalid client credentials",
+        }),
         { status: 400 },
       );
     }) as typeof fetch;
@@ -170,7 +171,10 @@ describe("CheckmarxAuth", () => {
 
   it("throws on non-JSON error response", async () => {
     globalThis.fetch = mock(async () => {
-      return new Response("Internal Server Error", { status: 500, statusText: "Internal Server Error" });
+      return new Response("Internal Server Error", {
+        status: 500,
+        statusText: "Internal Server Error",
+      });
     }) as typeof fetch;
 
     const auth = new CheckmarxAuth(makeConfig());
@@ -192,11 +196,7 @@ describe("CheckmarxAuth", () => {
 
     const auth = new CheckmarxAuth(makeConfig());
 
-    const [t1, t2, t3] = await Promise.all([
-      auth.getToken(),
-      auth.getToken(),
-      auth.getToken(),
-    ]);
+    const [t1, t2, t3] = await Promise.all([auth.getToken(), auth.getToken(), auth.getToken()]);
 
     expect(t1).toBe("shared-token");
     expect(t2).toBe("shared-token");
@@ -262,7 +262,11 @@ describe("CheckmarxAuth", () => {
     globalThis.fetch = mock(async () => {
       callCount++;
       return new Response(
-        JSON.stringify({ access_token: `token-${callCount}`, expires_in: 300, token_type: "Bearer" }),
+        JSON.stringify({
+          access_token: `token-${callCount}`,
+          expires_in: 300,
+          token_type: "Bearer",
+        }),
         { status: 200 },
       );
     }) as typeof fetch;

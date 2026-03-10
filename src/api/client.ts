@@ -77,7 +77,7 @@ export class CheckmarxClient {
         response = await fetch(url, {
           ...fetchOptions,
           headers: {
-            ...fetchOptions.headers as Record<string, string>,
+            ...(fetchOptions.headers as Record<string, string>),
             Authorization: `Bearer ${await this.auth.getToken()}`,
           },
           signal: AbortSignal.timeout(timeoutMs),
@@ -96,7 +96,7 @@ export class CheckmarxClient {
         response = await fetch(url, {
           ...fetchOptions,
           headers: {
-            ...fetchOptions.headers as Record<string, string>,
+            ...(fetchOptions.headers as Record<string, string>),
             Authorization: `Bearer ${await this.auth.getToken()}`,
           },
           signal: AbortSignal.timeout(timeoutMs),
@@ -273,9 +273,7 @@ export class CheckmarxRequestError extends Error {
     public readonly method: string,
     public readonly path: string,
   ) {
-    super(
-      `Checkmarx API error (${method} ${path}, HTTP ${statusCode}): ${apiError.message}`,
-    );
+    super(`Checkmarx API error (${method} ${path}, HTTP ${statusCode}): ${apiError.message}`);
     this.name = "CheckmarxRequestError";
   }
 }

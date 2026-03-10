@@ -11,7 +11,11 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
     "list_scans",
     "List recent scans, optionally filtered by project and status. Returns scan IDs, status, engines, and timestamps.",
     {
-      projectId: z.string().uuid().optional().describe("Filter by project UUID (uses default if set)"),
+      projectId: z
+        .string()
+        .uuid()
+        .optional()
+        .describe("Filter by project UUID (uses default if set)"),
       limit: z.number().int().min(1).max(100).default(10).describe("Max results to return"),
       offset: z.number().int().min(0).default(0).describe("Pagination offset"),
       statuses: z.array(ScanStatusEnum).optional().describe("Filter by scan statuses"),
@@ -44,7 +48,12 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
         return { content: [{ type: "text", text: JSON.stringify(shaped, null, 2) }] };
       } catch (error) {
         return {
-          content: [{ type: "text", text: `Error listing scans: ${error instanceof Error ? error.message : String(error)}` }],
+          content: [
+            {
+              type: "text",
+              text: `Error listing scans: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
           isError: true,
         };
       }
@@ -63,7 +72,12 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
         return { content: [{ type: "text", text: JSON.stringify(scan, null, 2) }] };
       } catch (error) {
         return {
-          content: [{ type: "text", text: `Error getting scan: ${error instanceof Error ? error.message : String(error)}` }],
+          content: [
+            {
+              type: "text",
+              text: `Error getting scan: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
           isError: true,
         };
       }
@@ -114,7 +128,10 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
       } catch (error) {
         return {
           content: [
-            { type: "text", text: `Error triggering git scan: ${error instanceof Error ? error.message : String(error)}` },
+            {
+              type: "text",
+              text: `Error triggering git scan: ${error instanceof Error ? error.message : String(error)}`,
+            },
           ],
           isError: true,
         };
@@ -143,7 +160,9 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
       excludePatterns: z
         .array(z.string())
         .optional()
-        .describe("Additional glob patterns to exclude from zip (node_modules, .git already excluded)"),
+        .describe(
+          "Additional glob patterns to exclude from zip (node_modules, .git already excluded)",
+        ),
     },
     async ({ projectId, directory, branch, scanTypes, excludePatterns }) => {
       try {
@@ -163,7 +182,8 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
               type: "text",
               text: JSON.stringify(
                 {
-                  message: "Local scan triggered successfully. Use get_scan to poll for completion.",
+                  message:
+                    "Local scan triggered successfully. Use get_scan to poll for completion.",
                   scanId: scan.id,
                   status: scan.status,
                   projectId: scan.projectId,
@@ -178,7 +198,10 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
       } catch (error) {
         return {
           content: [
-            { type: "text", text: `Error triggering local scan: ${error instanceof Error ? error.message : String(error)}` },
+            {
+              type: "text",
+              text: `Error triggering local scan: ${error instanceof Error ? error.message : String(error)}`,
+            },
           ],
           isError: true,
         };

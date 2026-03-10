@@ -7,8 +7,8 @@ import type {
   KicsFindingData,
   SastFindingData,
   ScaFindingData,
-  Severity,
   ScanType,
+  Severity,
 } from "../api/types.js";
 
 const SeverityEnum = z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]);
@@ -59,18 +59,12 @@ export function registerFindingTools(server: McpServer, client: CheckmarxClient)
       "KICS (IaC) findings include platform, file, and expected/actual values.",
     {
       scanId: z.string().uuid().describe("The scan UUID"),
-      severity: z
-        .array(SeverityEnum)
-        .optional()
-        .describe("Filter by severity levels"),
+      severity: z.array(SeverityEnum).optional().describe("Filter by severity levels"),
       type: z
         .array(ScanTypeEnum)
         .optional()
         .describe("Filter by scanner type (sast, sca, kics, etc.)"),
-      state: z
-        .array(FindingStateEnum)
-        .optional()
-        .describe("Filter by finding state"),
+      state: z.array(FindingStateEnum).optional().describe("Filter by finding state"),
       limit: z.number().int().min(1).max(200).default(20).describe("Max results to return"),
       offset: z.number().int().min(0).default(0).describe("Pagination offset"),
     },
@@ -93,9 +87,7 @@ export function registerFindingTools(server: McpServer, client: CheckmarxClient)
         return { content: [{ type: "text", text: JSON.stringify(shaped, null, 2) }] };
       } catch (error) {
         return {
-          content: [
-            { type: "text", text: `Error listing findings: ${errorMessage(error)}` },
-          ],
+          content: [{ type: "text", text: `Error listing findings: ${errorMessage(error)}` }],
           isError: true,
         };
       }
@@ -129,9 +121,7 @@ export function registerFindingTools(server: McpServer, client: CheckmarxClient)
           content: [
             {
               type: "text",
-              text:
-                `Finding ${findingId} not found in scan ${scanId}. ` +
-                "Use list_findings with filters to locate it.",
+              text: `Finding ${findingId} not found in scan ${scanId}. Use list_findings with filters to locate it.`,
             },
           ],
           isError: true,

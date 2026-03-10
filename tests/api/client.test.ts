@@ -1,6 +1,6 @@
-import { describe, expect, it, beforeEach, afterEach, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import type { CheckmarxAuth } from "../../src/api/auth.js";
 import { CheckmarxClient, CheckmarxRequestError } from "../../src/api/client.js";
-import { CheckmarxAuth } from "../../src/api/auth.js";
 import type { Config } from "../../src/config.js";
 
 function makeConfig(overrides: Partial<Config["checkmarx"]> = {}): Config {
@@ -87,10 +87,7 @@ describe("CheckmarxClient", () => {
   });
 
   function createClient(configOverrides: Partial<Config["checkmarx"]> = {}) {
-    return new CheckmarxClient(
-      makeConfig(configOverrides),
-      mockAuth as unknown as CheckmarxAuth,
-    );
+    return new CheckmarxClient(makeConfig(configOverrides), mockAuth as unknown as CheckmarxAuth);
   }
 
   describe("request mechanics", () => {
@@ -98,16 +95,17 @@ describe("CheckmarxClient", () => {
       let capturedHeaders: Record<string, string> = {};
 
       globalThis.fetch = mock(async (_url: string | URL | Request, init?: RequestInit) => {
-        capturedHeaders = Object.fromEntries(
-          Object.entries(init?.headers ?? {}),
-        ) as Record<string, string>;
+        capturedHeaders = Object.fromEntries(Object.entries(init?.headers ?? {})) as Record<
+          string,
+          string
+        >;
         return new Response(JSON.stringify(mockProjectResponse), { status: 200 });
       }) as typeof fetch;
 
       const client = createClient();
       await client.listProjects();
 
-      expect(capturedHeaders["Authorization"]).toBe("Bearer mock-access-token");
+      expect(capturedHeaders.Authorization).toBe("Bearer mock-access-token");
     });
 
     it("retries on 5xx with delay", async () => {
@@ -151,10 +149,9 @@ describe("CheckmarxClient", () => {
 
     it("throws CheckmarxRequestError on 4xx", async () => {
       globalThis.fetch = mock(async () => {
-        return new Response(
-          JSON.stringify({ code: 404, message: "Project not found" }),
-          { status: 404 },
-        );
+        return new Response(JSON.stringify({ code: 404, message: "Project not found" }), {
+          status: 404,
+        });
       }) as typeof fetch;
 
       const client = createClient();
@@ -384,13 +381,13 @@ describe("CheckmarxClient", () => {
         scanTypes: ["sast", "sca"],
       });
 
-      expect(capturedBody["type"]).toBe("git");
-      expect(capturedBody["project"]).toEqual({ id: "proj-1" });
-      expect(capturedBody["handler"]).toEqual({
+      expect(capturedBody.type).toBe("git");
+      expect(capturedBody.project).toEqual({ id: "proj-1" });
+      expect(capturedBody.handler).toEqual({
         repoUrl: "https://github.com/org/repo",
         branch: "main",
       });
-      expect(capturedBody["config"]).toEqual([
+      expect(capturedBody.config).toEqual([
         { type: "sast", value: {} },
         { type: "sca", value: {} },
       ]);
@@ -449,10 +446,9 @@ describe("CheckmarxClient", () => {
         calls.push({ url: urlStr, method, body });
 
         if (urlStr.includes("/api/uploads")) {
-          return new Response(
-            JSON.stringify({ url: "https://storage.example.com/presigned" }),
-            { status: 200 },
-          );
+          return new Response(JSON.stringify({ url: "https://storage.example.com/presigned" }), {
+            status: 200,
+          });
         }
         if (urlStr.includes("storage.example.com")) {
           return new Response(null, { status: 200 });
@@ -471,14 +467,14 @@ describe("CheckmarxClient", () => {
       });
 
       expect(calls).toHaveLength(3);
-      expect(calls[0]!.method).toBe("POST");
-      expect(calls[0]!.url).toContain("/api/uploads");
-      expect(calls[1]!.method).toBe("PUT");
-      expect(calls[1]!.url).toBe("https://storage.example.com/presigned");
-      expect(calls[2]!.method).toBe("POST");
-      expect(calls[2]!.url).toContain("/api/scans");
+      expect(calls[0]?.method).toBe("POST");
+      expect(calls[0]?.url).toContain("/api/uploads");
+      expect(calls[1]?.method).toBe("PUT");
+      expect(calls[1]?.url).toBe("https://storage.example.com/presigned");
+      expect(calls[2]?.method).toBe("POST");
+      expect(calls[2]?.url).toContain("/api/scans");
 
-      const scanBody = JSON.parse(calls[2]!.body!);
+      const scanBody = JSON.parse(calls[2]?.body ?? "");
       expect(scanBody.type).toBe("upload");
       expect(scanBody.handler.uploadUrl).toBe("https://storage.example.com/presigned");
       expect(scanBody.handler.branch).toBe("feature/test");

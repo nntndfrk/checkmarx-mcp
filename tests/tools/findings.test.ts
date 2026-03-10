@@ -1,8 +1,13 @@
-import { describe, expect, it, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { registerFindingTools } from "../../src/tools/findings.js";
 import type { CheckmarxClient } from "../../src/api/client.js";
-import type { Finding, SastFindingData, ScaFindingData, KicsFindingData } from "../../src/api/types.js";
+import type {
+  Finding,
+  KicsFindingData,
+  SastFindingData,
+  ScaFindingData,
+} from "../../src/api/types.js";
+import { registerFindingTools } from "../../src/tools/findings.js";
 
 const mockSastFinding: Finding<"sast"> = {
   id: "finding-sast-1",
@@ -131,9 +136,10 @@ async function callTool(
   name: string,
   args: Record<string, unknown> = {},
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  // biome-ignore lint/suspicious/noExplicitAny: accessing private SDK internals for test harness
   const tools = (server as any)._registeredTools as Record<
     string,
-    { handler: (args: Record<string, unknown>) => Promise<any> }
+    { handler: (args: Record<string, unknown>) => Promise<unknown> }
   >;
   const tool = tools[name];
   if (!tool) throw new Error(`Tool ${name} not registered`);
@@ -155,7 +161,7 @@ describe("Finding Tools", () => {
       const result = await callTool(server, "findings_summary", {
         scanId: "550e8400-e29b-41d4-a716-446655440000",
       });
-      const parsed = JSON.parse(result.content[0]!.text);
+      const parsed = JSON.parse(result.content[0]?.text);
 
       expect(parsed.totalCounter).toBe(10);
       expect(parsed.counters).toHaveLength(3);
@@ -174,7 +180,7 @@ describe("Finding Tools", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content[0]!.text).toContain("Scan not found");
+      expect(result.content[0]?.text).toContain("Scan not found");
     });
   });
 
@@ -188,7 +194,7 @@ describe("Finding Tools", () => {
         limit: 20,
         offset: 0,
       });
-      const parsed = JSON.parse(result.content[0]!.text);
+      const parsed = JSON.parse(result.content[0]?.text);
       const sastFinding = parsed.findings[0];
 
       expect(sastFinding.type).toBe("sast");
@@ -211,7 +217,7 @@ describe("Finding Tools", () => {
         limit: 20,
         offset: 0,
       });
-      const parsed = JSON.parse(result.content[0]!.text);
+      const parsed = JSON.parse(result.content[0]?.text);
       const scaFinding = parsed.findings[1];
 
       expect(scaFinding.type).toBe("sca");
@@ -231,7 +237,7 @@ describe("Finding Tools", () => {
         limit: 20,
         offset: 0,
       });
-      const parsed = JSON.parse(result.content[0]!.text);
+      const parsed = JSON.parse(result.content[0]?.text);
       const kicsFinding = parsed.findings[2];
 
       expect(kicsFinding.type).toBe("kics");
@@ -258,7 +264,7 @@ describe("Finding Tools", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content[0]!.text).toContain("Invalid scan ID");
+      expect(result.content[0]?.text).toContain("Invalid scan ID");
     });
   });
 
@@ -271,7 +277,7 @@ describe("Finding Tools", () => {
         scanId: "550e8400-e29b-41d4-a716-446655440000",
         findingId: "finding-sast-1",
       });
-      const parsed = JSON.parse(result.content[0]!.text);
+      const parsed = JSON.parse(result.content[0]?.text);
 
       expect(parsed.id).toBe("finding-sast-1");
       expect(parsed.data.nodes).toHaveLength(2);
@@ -287,7 +293,7 @@ describe("Finding Tools", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content[0]!.text).toContain("not found");
+      expect(result.content[0]?.text).toContain("not found");
     });
   });
 });

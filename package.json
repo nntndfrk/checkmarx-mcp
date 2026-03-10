@@ -35,11 +35,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "archiver": "^7.0.1",
     "express": "^5.1.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@types/archiver": "^7.0.0",
     "@types/express": "^5.0.2",
     "@types/node": "^22.15.3"
   }

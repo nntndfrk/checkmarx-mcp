@@ -49,7 +49,12 @@ export function registerProjectTools(server: McpServer, client: CheckmarxClient)
         return { content: [{ type: "text", text: JSON.stringify(shaped, null, 2) }] };
       } catch (error) {
         return {
-          content: [{ type: "text", text: `Error listing projects: ${error instanceof Error ? error.message : String(error)}` }],
+          content: [
+            {
+              type: "text",
+              text: `Error listing projects: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
           isError: true,
         };
       }
@@ -68,7 +73,12 @@ export function registerProjectTools(server: McpServer, client: CheckmarxClient)
         return { content: [{ type: "text", text: JSON.stringify(project, null, 2) }] };
       } catch (error) {
         return {
-          content: [{ type: "text", text: `Error getting project: ${error instanceof Error ? error.message : String(error)}` }],
+          content: [
+            {
+              type: "text",
+              text: `Error getting project: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
           isError: true,
         };
       }

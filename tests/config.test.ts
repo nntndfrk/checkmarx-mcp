@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { loadConfig } from "../src/config.js";
 
 describe("loadConfig", () => {
@@ -6,8 +6,8 @@ describe("loadConfig", () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
-    process.env["CHECKMARX_API_KEY"] = "test-api-key-12345";
-    process.env["CHECKMARX_TENANT"] = "test-tenant";
+    process.env.CHECKMARX_API_KEY = "test-api-key-12345";
+    process.env.CHECKMARX_TENANT = "test-tenant";
   });
 
   afterEach(() => {
@@ -27,10 +27,10 @@ describe("loadConfig", () => {
   });
 
   it("applies custom URLs and port", () => {
-    process.env["CHECKMARX_BASE_URL"] = "https://eu.ast.checkmarx.net";
-    process.env["CHECKMARX_IAM_URL"] = "https://eu.iam.checkmarx.net";
-    process.env["PORT"] = "8080";
-    process.env["TRANSPORT"] = "http";
+    process.env.CHECKMARX_BASE_URL = "https://eu.ast.checkmarx.net";
+    process.env.CHECKMARX_IAM_URL = "https://eu.iam.checkmarx.net";
+    process.env.PORT = "8080";
+    process.env.TRANSPORT = "http";
 
     const config = loadConfig();
 
@@ -41,7 +41,7 @@ describe("loadConfig", () => {
   });
 
   it("parses optional project ID", () => {
-    process.env["CHECKMARX_PROJECT_ID"] = "550e8400-e29b-41d4-a716-446655440000";
+    process.env.CHECKMARX_PROJECT_ID = "550e8400-e29b-41d4-a716-446655440000";
 
     const config = loadConfig();
 
@@ -49,83 +49,83 @@ describe("loadConfig", () => {
   });
 
   it("throws on missing CHECKMARX_API_KEY", () => {
-    delete process.env["CHECKMARX_API_KEY"];
+    process.env.CHECKMARX_API_KEY = undefined;
 
     expect(() => loadConfig()).toThrow("checkmarx.apiKey");
   });
 
   it("throws on missing CHECKMARX_TENANT", () => {
-    delete process.env["CHECKMARX_TENANT"];
+    process.env.CHECKMARX_TENANT = undefined;
 
     expect(() => loadConfig()).toThrow("checkmarx.tenant");
   });
 
   it("throws on invalid CHECKMARX_BASE_URL", () => {
-    process.env["CHECKMARX_BASE_URL"] = "not-a-url";
+    process.env.CHECKMARX_BASE_URL = "not-a-url";
 
     expect(() => loadConfig()).toThrow("checkmarx.baseUrl");
   });
 
   it("throws on invalid transport value", () => {
-    process.env["TRANSPORT"] = "websocket";
+    process.env.TRANSPORT = "websocket";
 
     expect(() => loadConfig()).toThrow("Invalid configuration");
   });
 
   it("throws on invalid port number", () => {
-    process.env["PORT"] = "99999";
+    process.env.PORT = "99999";
 
     expect(() => loadConfig()).toThrow("Invalid configuration");
   });
 
   it("throws on invalid project ID format", () => {
-    process.env["CHECKMARX_PROJECT_ID"] = "not-a-uuid";
+    process.env.CHECKMARX_PROJECT_ID = "not-a-uuid";
 
     expect(() => loadConfig()).toThrow("Invalid configuration");
   });
 
   it("rejects whitespace-only API key", () => {
-    process.env["CHECKMARX_API_KEY"] = "   ";
+    process.env.CHECKMARX_API_KEY = "   ";
 
     expect(() => loadConfig()).toThrow("checkmarx.apiKey");
   });
 
   it("rejects whitespace-only tenant", () => {
-    process.env["CHECKMARX_TENANT"] = "   ";
+    process.env.CHECKMARX_TENANT = "   ";
 
     expect(() => loadConfig()).toThrow("checkmarx.tenant");
   });
 
   it("treats empty CHECKMARX_PROJECT_ID as optional", () => {
-    process.env["CHECKMARX_PROJECT_ID"] = "";
+    process.env.CHECKMARX_PROJECT_ID = "";
 
     const config = loadConfig();
     expect(config.checkmarx.projectId).toBeUndefined();
   });
 
   it("uses default when CHECKMARX_BASE_URL is empty", () => {
-    process.env["CHECKMARX_BASE_URL"] = "";
+    process.env.CHECKMARX_BASE_URL = "";
 
     const config = loadConfig();
     expect(config.checkmarx.baseUrl).toBe("https://ast.checkmarx.net");
   });
 
   it("uses default when TRANSPORT is empty", () => {
-    process.env["TRANSPORT"] = "";
+    process.env.TRANSPORT = "";
 
     const config = loadConfig();
     expect(config.transport).toBe("stdio");
   });
 
   it("throws on non-numeric port", () => {
-    process.env["PORT"] = "abc";
+    process.env.PORT = "abc";
 
     expect(() => loadConfig()).toThrow("Invalid configuration");
   });
 
   it("includes all validation issues in error message", () => {
-    delete process.env["CHECKMARX_API_KEY"];
-    delete process.env["CHECKMARX_TENANT"];
+    process.env.CHECKMARX_API_KEY = undefined;
+    process.env.CHECKMARX_TENANT = undefined;
 
     try {
       loadConfig();

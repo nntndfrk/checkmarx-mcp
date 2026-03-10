@@ -66,8 +66,8 @@ export class CheckmarxAuth {
       let detail: string;
       try {
         const errorBody = (await response.json()) as Record<string, unknown>;
-        const desc = errorBody["error_description"];
-        const errType = errorBody["error"];
+        const desc = errorBody.error_description;
+        const errType = errorBody.error;
         const parts: string[] = [];
         if (typeof errType === "string") parts.push(errType);
         if (typeof desc === "string") parts.push(desc);

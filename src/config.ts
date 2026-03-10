@@ -25,14 +25,14 @@ export type Config = z.infer<typeof ConfigSchema>;
 export function loadConfig(): Config {
   const raw = {
     checkmarx: {
-      apiKey: process.env["CHECKMARX_API_KEY"] ?? "",
-      tenant: process.env["CHECKMARX_TENANT"] ?? "",
-      baseUrl: process.env["CHECKMARX_BASE_URL"] || undefined,
-      iamUrl: process.env["CHECKMARX_IAM_URL"] || undefined,
-      projectId: process.env["CHECKMARX_PROJECT_ID"] || undefined,
+      apiKey: process.env.CHECKMARX_API_KEY ?? "",
+      tenant: process.env.CHECKMARX_TENANT ?? "",
+      baseUrl: process.env.CHECKMARX_BASE_URL || undefined,
+      iamUrl: process.env.CHECKMARX_IAM_URL || undefined,
+      projectId: process.env.CHECKMARX_PROJECT_ID || undefined,
     },
-    transport: process.env["TRANSPORT"] || undefined,
-    port: process.env["PORT"] || undefined,
+    transport: process.env.TRANSPORT || undefined,
+    port: process.env.PORT || undefined,
   };
 
   const result = ConfigSchema.safeParse(raw);

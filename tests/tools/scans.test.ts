@@ -1,7 +1,7 @@
-import { describe, expect, it, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { registerScanTools } from "../../src/tools/scans.js";
 import type { CheckmarxClient } from "../../src/api/client.js";
+import { registerScanTools } from "../../src/tools/scans.js";
 
 const mockScan = {
   id: "scan-1",
@@ -50,9 +50,10 @@ async function callTool(
   name: string,
   args: Record<string, unknown> = {},
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  // biome-ignore lint/suspicious/noExplicitAny: accessing private SDK internals for test harness
   const tools = (server as any)._registeredTools as Record<
     string,
-    { handler: (args: Record<string, unknown>) => Promise<any> }
+    { handler: (args: Record<string, unknown>) => Promise<unknown> }
   >;
   const tool = tools[name];
   if (!tool) throw new Error(`Tool ${name} not registered`);
@@ -72,7 +73,7 @@ describe("Scan Tools", () => {
       registerScanTools(server, client);
 
       const result = await callTool(server, "list_scans", { limit: 10, offset: 0 });
-      const parsed = JSON.parse(result.content[0]!.text);
+      const parsed = JSON.parse(result.content[0]?.text);
 
       expect(parsed.totalCount).toBe(1);
       expect(parsed.scans).toHaveLength(1);
@@ -93,7 +94,7 @@ describe("Scan Tools", () => {
       const result = await callTool(server, "list_scans", { limit: 10, offset: 0 });
 
       expect(result.isError).toBe(true);
-      expect(result.content[0]!.text).toContain("Timeout");
+      expect(result.content[0]?.text).toContain("Timeout");
     });
   });
 
@@ -105,7 +106,7 @@ describe("Scan Tools", () => {
       const result = await callTool(server, "get_scan", {
         scanId: "550e8400-e29b-41d4-a716-446655440000",
       });
-      const parsed = JSON.parse(result.content[0]!.text);
+      const parsed = JSON.parse(result.content[0]?.text);
 
       expect(parsed.id).toBe("scan-1");
       expect(parsed.status).toBe("Completed");
@@ -123,7 +124,7 @@ describe("Scan Tools", () => {
         branch: "main",
         scanTypes: ["sast", "sca"],
       });
-      const parsed = JSON.parse(result.content[0]!.text);
+      const parsed = JSON.parse(result.content[0]?.text);
 
       expect(parsed.scanId).toBe("scan-new");
       expect(parsed.status).toBe("Queued");
@@ -144,7 +145,7 @@ describe("Scan Tools", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content[0]!.text).toContain("No project ID provided");
+      expect(result.content[0]?.text).toContain("No project ID provided");
     });
   });
 });

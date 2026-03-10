@@ -9,13 +9,7 @@ export type FindingState =
 
 export type FindingStatus = "NEW" | "RECURRENT" | "FIXED";
 
-export type ScanStatus =
-  | "Queued"
-  | "Running"
-  | "Completed"
-  | "Failed"
-  | "Partial"
-  | "Canceled";
+export type ScanStatus = "Queued" | "Running" | "Completed" | "Failed" | "Partial" | "Canceled";
 
 export type ScanType = "sast" | "sca" | "kics" | "apisec" | "secrets";
 
