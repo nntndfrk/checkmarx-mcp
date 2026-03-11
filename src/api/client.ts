@@ -3,7 +3,6 @@ import type { CheckmarxAuth } from "./auth.js";
 import type {
   CheckmarxApiError,
   CreateScanGitRequest,
-  CreateScanRequest,
   CreateScanUploadRequest,
   Finding,
   FindingSummary,
