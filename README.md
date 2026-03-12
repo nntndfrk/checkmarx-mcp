@@ -1,6 +1,6 @@
 # checkmarx-mcp
 
-MCP server providing AI coding agents with full programmatic access to the **Checkmarx One** security platform &mdash; projects, scans, findings, and scan triggering.
+MCP server providing AI coding agents with full programmatic access to the **Checkmarx One** security platform — projects, scans, findings, and scan triggering.
 
 ## Architecture
 
@@ -91,11 +91,11 @@ cp .env.example .env
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `CHECKMARX_API_KEY` | Yes | &mdash; | API key (refresh token) from IAM |
-| `CHECKMARX_TENANT` | Yes | &mdash; | Checkmarx One tenant name |
+| `CHECKMARX_API_KEY` | Yes | — | API key (refresh token) from IAM |
+| `CHECKMARX_TENANT` | Yes | — | Checkmarx One tenant name |
 | `CHECKMARX_BASE_URL` | No | `https://ast.checkmarx.net` | API base URL (change for EU/DEU regions) |
 | `CHECKMARX_IAM_URL` | No | `https://iam.checkmarx.net` | IAM URL (change for EU/DEU regions) |
-| `CHECKMARX_PROJECT_ID` | No | &mdash; | Default project UUID (tools accept per-call override) |
+| `CHECKMARX_PROJECT_ID` | No | — | Default project UUID (tools accept per-call override) |
 | `TRANSPORT` | No | `stdio` | `stdio` for CLI clients or `http` for remote |
 | `PORT` | No | `3000` | Port for HTTP transport |
 
@@ -205,13 +205,13 @@ The agent calls `list_findings` with severity filter, then `get_finding_details`
 
 ## Troubleshooting
 
-**"Invalid configuration" on startup** &mdash; Check that `CHECKMARX_API_KEY` and `CHECKMARX_TENANT` are set. See `.env.example` for all available options.
+**"Invalid configuration" on startup** — Check that `CHECKMARX_API_KEY` and `CHECKMARX_TENANT` are set. See `.env.example` for all available options.
 
-**"Auth failed: invalid_grant"** &mdash; Your API key may have expired. Generate a new one in Checkmarx One under IAM > API Keys.
+**"Auth failed: invalid_grant"** — Your API key may have expired. Generate a new one in Checkmarx One under IAM > API Keys.
 
-**"Health check failed"** &mdash; Verify `CHECKMARX_BASE_URL` matches your region (US: `ast.checkmarx.net`, EU: `eu.ast.checkmarx.net`).
+**"Health check failed"** — Verify `CHECKMARX_BASE_URL` matches your region (US: `ast.checkmarx.net`, EU: `eu.ast.checkmarx.net`).
 
-**Scans stuck in "Queued"** &mdash; This is normal for large queues. Use `get_scan` to poll. Scans typically start within a few minutes.
+**Scans stuck in "Queued"** — This is normal for large queues. Use `get_scan` to poll. Scans typically start within a few minutes.
 
 ## License
 
