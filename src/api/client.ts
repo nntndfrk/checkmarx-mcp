@@ -154,7 +154,16 @@ export class CheckmarxClient {
     searchParams.set("offset", String(params.offset ?? 0));
 
     const query = searchParams.toString();
-    return this.request<PaginatedResponse<Project>>(`/api/projects?${query}`);
+    const raw = await this.request<{
+      totalCount: number;
+      filteredTotalCount: number;
+      projects: Project[];
+    }>(`/api/projects?${query}`);
+    return {
+      totalCount: raw.totalCount,
+      filteredTotalCount: raw.filteredTotalCount,
+      items: raw.projects,
+    };
   }
 
   async getProject(projectId: string): Promise<Project> {
@@ -170,7 +179,16 @@ export class CheckmarxClient {
     if (params.sort) searchParams.set("sort", params.sort);
 
     const query = searchParams.toString();
-    return this.request<PaginatedResponse<Scan>>(`/api/scans?${query}`);
+    const raw = await this.request<{
+      totalCount: number;
+      filteredTotalCount: number;
+      scans: Scan[];
+    }>(`/api/scans?${query}`);
+    return {
+      totalCount: raw.totalCount,
+      filteredTotalCount: raw.filteredTotalCount,
+      items: raw.scans,
+    };
   }
 
   async getScan(scanId: string): Promise<Scan> {
@@ -185,14 +203,23 @@ export class CheckmarxClient {
     if (params.state?.length) searchParams.set("state", params.state.join(","));
     searchParams.set("limit", String(params.limit ?? 20));
     searchParams.set("offset", String(params.offset ?? 0));
-    searchParams.set("sort", "+severity");
+    searchParams.set("sort", "-severity");
 
     const query = searchParams.toString();
-    return this.request<PaginatedResponse<Finding>>(`/api/results?${query}`);
+    const raw = await this.request<{
+      totalCount: number;
+      filteredTotalCount: number;
+      results: Finding[];
+    }>(`/api/results?${query}`);
+    return {
+      totalCount: raw.totalCount,
+      filteredTotalCount: raw.filteredTotalCount,
+      items: raw.results,
+    };
   }
 
   async getFindingSummary(scanId: string): Promise<FindingSummary> {
-    return this.request<FindingSummary>(`/api/scan-summary?scan-id=${scanId}`);
+    return this.request<FindingSummary>(`/api/scan-summary?scan-ids=${scanId}`);
   }
 
   async createUploadUrl(): Promise<UploadUrlResponse> {

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import type { Server as HttpServer } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CheckmarxAuth } from "./api/auth.js";

@@ -28,7 +28,7 @@ class MockAuth {
 const mockProjectResponse = {
   totalCount: 2,
   filteredTotalCount: 2,
-  items: [
+  projects: [
     {
       id: "proj-1",
       name: "my-app",
@@ -55,7 +55,7 @@ const mockProjectResponse = {
 const mockScanResponse = {
   totalCount: 1,
   filteredTotalCount: 1,
-  items: [
+  scans: [
     {
       id: "scan-1",
       status: "Completed",
@@ -342,7 +342,7 @@ describe("CheckmarxClient", () => {
   describe("getFindings", () => {
     it("sends scan-id and filter params", async () => {
       let capturedUrl = "";
-      const emptyResults = { totalCount: 0, filteredTotalCount: 0, items: [] };
+      const emptyResults = { totalCount: 0, filteredTotalCount: 0, results: [] };
 
       globalThis.fetch = mock(async (url: string | URL | Request) => {
         capturedUrl = String(url);
@@ -361,7 +361,7 @@ describe("CheckmarxClient", () => {
       expect(capturedUrl).toContain("severity=HIGH%2CCRITICAL");
       expect(capturedUrl).toContain("type=sast");
       expect(capturedUrl).toContain("limit=50");
-      expect(capturedUrl).toContain("sort=%2Bseverity");
+      expect(capturedUrl).toContain("sort=-severity");
     });
   });
 
@@ -371,7 +371,7 @@ describe("CheckmarxClient", () => {
 
       globalThis.fetch = mock(async (_url: string | URL | Request, init?: RequestInit) => {
         if (init?.body) capturedBody = JSON.parse(init.body as string);
-        return new Response(JSON.stringify(mockScanResponse.items[0]), { status: 200 });
+        return new Response(JSON.stringify(mockScanResponse.scans[0]), { status: 200 });
       }) as typeof fetch;
 
       const client = createClient({ projectId: "proj-1" });
@@ -400,7 +400,7 @@ describe("CheckmarxClient", () => {
 
       globalThis.fetch = mock(async (url: string | URL | Request) => {
         capturedUrl = String(url);
-        return new Response(JSON.stringify(mockScanResponse.items[0]), { status: 200 });
+        return new Response(JSON.stringify(mockScanResponse.scans[0]), { status: 200 });
       }) as typeof fetch;
 
       const client = createClient();
@@ -430,7 +430,7 @@ describe("CheckmarxClient", () => {
       const client = createClient();
       const summary = await client.getFindingSummary("scan-1");
 
-      expect(capturedUrl).toContain("scan-id=scan-1");
+      expect(capturedUrl).toContain("scan-ids=scan-1");
       expect(summary.totalCounter).toBe(10);
     });
   });
@@ -454,7 +454,7 @@ describe("CheckmarxClient", () => {
           return new Response(null, { status: 200 });
         }
         if (urlStr.includes("/api/scans")) {
-          return new Response(JSON.stringify(mockScanResponse.items[0]), { status: 200 });
+          return new Response(JSON.stringify(mockScanResponse.scans[0]), { status: 200 });
         }
         return new Response("Not found", { status: 404 });
       }) as typeof fetch;
