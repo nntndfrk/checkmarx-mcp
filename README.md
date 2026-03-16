@@ -98,6 +98,7 @@ cp .env.example .env
 | `CHECKMARX_PROJECT_ID` | No | — | Default project UUID (tools accept per-call override) |
 | `TRANSPORT` | No | `stdio` | `stdio` for CLI clients or `http` for remote |
 | `PORT` | No | `3000` | Port for HTTP transport |
+| `LOG_LEVEL` | No | `info` | Logging verbosity (`debug`, `info`, `error`) |
 
 ### Claude Code
 
@@ -183,25 +184,47 @@ bun run lint
 bun run format
 ```
 
-## Example Workflows
+## Example Prompts
 
-### Check project security posture
+### Quick security overview
 
-> "Run a health check on Checkmarx, list my projects, then show me a findings summary for the latest completed scan."
-
-The agent will call `health_check`, then `list_projects`, then `list_scans` to find the latest completed scan, and finally `findings_summary` to show the severity breakdown.
+> "Check Checkmarx connectivity, list my projects, and show a findings summary for the latest completed scan."
 
 ### Scan local code
 
 > "Scan the current directory for vulnerabilities using Checkmarx."
 
-The agent will call `trigger_scan_local` with the workspace directory, which zips the code (excluding node_modules, .git, etc.), uploads it, and creates a scan. It then polls with `get_scan` until complete and retrieves findings with `list_findings`.
+### Scan a Git repository
 
-### Investigate a vulnerability
+> "Scan the main branch of https://github.com/org/repo with SAST and SCA."
 
-> "Show me all HIGH severity SAST findings from scan abc-123, then get the full data flow for the first one."
+### Triage critical findings
 
-The agent calls `list_findings` with severity filter, then `get_finding_details` to show the complete source-to-sink data flow.
+> "Show me all CRITICAL and HIGH findings from the latest scan on my-app project. For each SAST finding, show the data flow."
+
+### Compare scan results
+
+> "Compare findings between the two most recent scans on project my-api. What's new, what's fixed?"
+
+### Fix a vulnerability
+
+> "Get the full data flow for finding XYZ from scan ABC, then suggest a code fix based on the source and sink."
+
+### SCA dependency audit
+
+> "List all SCA findings for the latest scan. Group them by package and show which ones have a recommended fix version."
+
+### Filter by state
+
+> "Show me all findings marked as TO_VERIFY in my latest scan. Help me triage them as CONFIRMED or NOT_EXPLOITABLE."
+
+### Infrastructure-as-Code review
+
+> "List all KICS findings from the latest scan. Group by platform (Terraform, Dockerfile, K8s) and severity."
+
+### Monitor scan progress
+
+> "Trigger a SAST-only scan of the current directory, then poll until it completes and show the results."
 
 ## Troubleshooting
 
