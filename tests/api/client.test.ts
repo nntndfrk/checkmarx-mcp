@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { CheckmarxAuth } from "../../src/api/auth.js";
 import { CheckmarxClient, CheckmarxRequestError } from "../../src/api/client.js";
 import type { Config } from "../../src/config.js";
+import { Logger } from "../../src/logger.js";
 
 function makeConfig(overrides: Partial<Config["checkmarx"]> = {}): Config {
   return {
@@ -86,8 +87,10 @@ describe("CheckmarxClient", () => {
     globalThis.fetch = originalFetch;
   });
 
+  const silentLogger = new Logger("error");
+
   function createClient(configOverrides: Partial<Config["checkmarx"]> = {}) {
-    return new CheckmarxClient(makeConfig(configOverrides), mockAuth as unknown as CheckmarxAuth);
+    return new CheckmarxClient(makeConfig(configOverrides), mockAuth as unknown as CheckmarxAuth, silentLogger);
   }
 
   describe("request mechanics", () => {

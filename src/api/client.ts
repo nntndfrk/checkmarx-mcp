@@ -1,4 +1,5 @@
 import type { Config } from "../config.js";
+import type { Logger } from "../logger.js";
 import type { CheckmarxAuth } from "./auth.js";
 import type {
   CheckmarxApiError,
@@ -31,11 +32,13 @@ const RETRY_DELAY_MS = 2_000;
 export class CheckmarxClient {
   private readonly baseUrl: string;
   private readonly auth: CheckmarxAuth;
+  private readonly logger: Logger;
   private readonly defaultProjectId?: string;
 
-  constructor(config: Config, auth: CheckmarxAuth) {
+  constructor(config: Config, auth: CheckmarxAuth, logger: Logger) {
     this.baseUrl = config.checkmarx.baseUrl.replace(/\/+$/, "");
     this.auth = auth;
+    this.logger = logger;
     this.defaultProjectId = config.checkmarx.projectId;
   }
 
@@ -43,6 +46,11 @@ export class CheckmarxClient {
     const { method = "GET", body, headers = {}, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
     const token = await this.auth.getToken();
     const url = `${this.baseUrl}${path}`;
+
+    this.logger.debug(`${method} ${path}`);
+    if (body !== undefined && !(body instanceof Buffer)) {
+      this.logger.debug("Request body", body);
+    }
 
     const fetchOptions: RequestInit = {
       method,
@@ -63,10 +71,14 @@ export class CheckmarxClient {
       response = await fetch(url, fetchOptions);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Request failed: ${method} ${path} — ${message}`);
       throw new Error(`Checkmarx API request failed (${method} ${path}): ${message}`);
     }
 
+    this.logger.debug(`Response: ${method} ${path} → HTTP ${response.status}`);
+
     if (response.status === 429) {
+      this.logger.info(`Rate limited on ${method} ${path}, retrying`);
       await response.text().catch(() => {});
       const retryAfter = response.headers.get("Retry-After");
       const waitMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : RETRY_DELAY_MS;
@@ -88,6 +100,7 @@ export class CheckmarxClient {
     }
 
     if (response.status >= 500) {
+      this.logger.info(`Server error ${response.status} on ${method} ${path}, retrying`);
       await response.text().catch(() => {});
       await this.delay(RETRY_DELAY_MS);
 
@@ -113,6 +126,7 @@ export class CheckmarxClient {
       } catch {
         apiError = { code: response.status, message: response.statusText };
       }
+      this.logger.error(`API error: ${method} ${path} → HTTP ${response.status}`, apiError);
       throw new CheckmarxRequestError(response.status, apiError, method, path);
     }
 
@@ -227,16 +241,32 @@ export class CheckmarxClient {
   }
 
   async uploadZip(presignedUrl: string, zipBuffer: Buffer): Promise<void> {
-    try {
-      const response = await fetch(presignedUrl, {
+    const urlHost = new URL(presignedUrl).host;
+    this.logger.debug(`Uploading zip (${zipBuffer.length} bytes) to ${urlHost}`);
+
+    const doUpload = (headers: Record<string, string> = {}) =>
+      fetch(presignedUrl, {
         method: "PUT",
         body: zipBuffer,
-        headers: { "Content-Type": "application/zip" },
+        headers,
         signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
       });
+
+    try {
+      let response = await doUpload();
+
+      if (response.status === 401 || response.status === 403) {
+        this.logger.debug("Presigned URL rejected without auth, retrying with token");
+        const token = await this.auth.getToken();
+        response = await doUpload({ Authorization: `Bearer ${token}` });
+      }
+
       if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        this.logger.error(`Upload failed: HTTP ${response.status} — ${body}`);
         throw new Error(`Upload failed with HTTP ${response.status}`);
       }
+      this.logger.debug("Upload completed successfully");
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Upload failed")) throw error;
       const message = error instanceof Error ? error.message : String(error);

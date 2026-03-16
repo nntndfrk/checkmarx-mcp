@@ -1,4 +1,5 @@
 import type { Config } from "../config.js";
+import type { Logger } from "../logger.js";
 
 interface TokenResponse {
   access_token: string;
@@ -12,22 +13,26 @@ export class CheckmarxAuth {
   private readonly iamUrl: string;
   private readonly tenant: string;
   private readonly apiKey: string;
+  private readonly logger: Logger;
 
   private cachedToken: string | null = null;
   private tokenExpiresAt = 0;
   private refreshPromise: Promise<string> | null = null;
 
-  constructor(config: Config) {
+  constructor(config: Config, logger: Logger) {
     this.iamUrl = config.checkmarx.iamUrl.replace(/\/+$/, "");
     this.tenant = config.checkmarx.tenant;
     this.apiKey = config.checkmarx.apiKey;
+    this.logger = logger;
   }
 
   async getToken(): Promise<string> {
     if (this.cachedToken && Date.now() < this.tokenExpiresAt) {
+      this.logger.debug("Using cached auth token");
       return this.cachedToken;
     }
 
+    this.logger.debug("Token expired or missing, refreshing");
     if (!this.refreshPromise) {
       this.refreshPromise = this.refreshToken().finally(() => {
         this.refreshPromise = null;
@@ -39,6 +44,7 @@ export class CheckmarxAuth {
 
   private async refreshToken(): Promise<string> {
     const tokenUrl = `${this.iamUrl}/auth/realms/${this.tenant}/protocol/openid-connect/token`;
+    this.logger.debug(`Auth token request: ${tokenUrl}`);
 
     const body = new URLSearchParams({
       grant_type: "refresh_token",
@@ -100,6 +106,7 @@ export class CheckmarxAuth {
     this.cachedToken = data.access_token;
     this.tokenExpiresAt = Date.now() + data.expires_in * 1000 - TOKEN_EXPIRY_BUFFER_MS;
 
+    this.logger.debug(`Auth token acquired, expires in ${data.expires_in}s`);
     return this.cachedToken;
   }
 

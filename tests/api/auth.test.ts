@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { CheckmarxAuth } from "../../src/api/auth.js";
 import type { Config } from "../../src/config.js";
+import { Logger } from "../../src/logger.js";
 
 function makeConfig(overrides: Partial<Config["checkmarx"]> = {}): Config {
   return {
@@ -23,6 +24,8 @@ function tokenResponse(expiresIn = 300) {
     token_type: "Bearer",
   };
 }
+
+const silentLogger = new Logger("error");
 
 describe("CheckmarxAuth", () => {
   let originalFetch: typeof globalThis.fetch;
@@ -55,7 +58,7 @@ describe("CheckmarxAuth", () => {
       });
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
     const token = await auth.getToken();
 
     expect(token).toBe(expectedToken.access_token);
@@ -70,7 +73,7 @@ describe("CheckmarxAuth", () => {
       return new Response(JSON.stringify(token), { status: 200 });
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
 
     const first = await auth.getToken();
     const second = await auth.getToken();
@@ -90,7 +93,7 @@ describe("CheckmarxAuth", () => {
       );
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
 
     const first = await auth.getToken();
     expect(first).toBe("token-1");
@@ -110,7 +113,7 @@ describe("CheckmarxAuth", () => {
       return new Response(JSON.stringify(tokenResponse()), { status: 200 });
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig({ iamUrl: "https://eu.iam.checkmarx.net" }));
+    const auth = new CheckmarxAuth(makeConfig({ iamUrl: "https://eu.iam.checkmarx.net" }), silentLogger);
     await auth.getToken();
 
     expect(capturedUrl).toStartWith("https://eu.iam.checkmarx.net/auth/realms/test-tenant/");
@@ -124,7 +127,7 @@ describe("CheckmarxAuth", () => {
       return new Response(JSON.stringify(tokenResponse()), { status: 200 });
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig({ iamUrl: "https://iam.checkmarx.net///" }));
+    const auth = new CheckmarxAuth(makeConfig({ iamUrl: "https://iam.checkmarx.net///" }), silentLogger);
     await auth.getToken();
 
     expect(capturedUrl).toStartWith("https://iam.checkmarx.net/auth/realms/");
@@ -138,7 +141,7 @@ describe("CheckmarxAuth", () => {
       );
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
 
     await expect(auth.getToken()).rejects.toThrow("Token is not active");
   });
@@ -154,7 +157,7 @@ describe("CheckmarxAuth", () => {
       );
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
 
     await expect(auth.getToken()).rejects.toThrow("Verify CHECKMARX_API_KEY");
   });
@@ -164,7 +167,7 @@ describe("CheckmarxAuth", () => {
       throw new TypeError("fetch failed");
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
 
     await expect(auth.getToken()).rejects.toThrow("Checkmarx auth request failed: fetch failed");
   });
@@ -177,7 +180,7 @@ describe("CheckmarxAuth", () => {
       });
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
 
     await expect(auth.getToken()).rejects.toThrow("HTTP 500");
   });
@@ -194,7 +197,7 @@ describe("CheckmarxAuth", () => {
       );
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
 
     const [t1, t2, t3] = await Promise.all([auth.getToken(), auth.getToken(), auth.getToken()]);
 
@@ -212,7 +215,7 @@ describe("CheckmarxAuth", () => {
       );
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
 
     await expect(auth.getToken()).rejects.toThrow("empty or missing access_token");
   });
@@ -225,7 +228,7 @@ describe("CheckmarxAuth", () => {
       );
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
 
     await expect(auth.getToken()).rejects.toThrow("invalid expires_in");
   });
@@ -238,7 +241,7 @@ describe("CheckmarxAuth", () => {
       });
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
 
     await expect(auth.getToken()).rejects.toThrow("invalid JSON in success response");
   });
@@ -251,7 +254,7 @@ describe("CheckmarxAuth", () => {
       );
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
 
     await expect(auth.getToken()).rejects.toThrow("invalid_grant: Token expired");
   });
@@ -271,7 +274,7 @@ describe("CheckmarxAuth", () => {
       );
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig());
+    const auth = new CheckmarxAuth(makeConfig(), silentLogger);
 
     const first = await auth.getToken();
     expect(first).toBe("token-1");

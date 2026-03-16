@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CheckmarxAuth } from "./api/auth.js";
 import { CheckmarxClient } from "./api/client.js";
 import { loadConfig } from "./config.js";
+import { createLogger } from "./logger.js";
 import { registerAllTools } from "./tools/index.js";
 import { startHttpTransport } from "./transport/http.js";
 import { startStdioTransport } from "./transport/stdio.js";
@@ -12,8 +13,11 @@ const SERVER_VERSION = "0.1.0";
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const auth = new CheckmarxAuth(config);
-  const client = new CheckmarxClient(config, auth);
+  const logger = createLogger();
+  logger.info(`Log level: ${process.env.LOG_LEVEL ?? "(default: info)"}`);
+  logger.debug("Debug logging enabled");
+  const auth = new CheckmarxAuth(config, logger);
+  const client = new CheckmarxClient(config, auth, logger);
 
   let httpServer: HttpServer | undefined;
 
