@@ -46,16 +46,14 @@ cp .env.example .env
 | `PORT` | No | `3000` | Port for HTTP transport |
 | `LOG_LEVEL` | No | `info` | Logging verbosity (`debug`, `info`, `error`) |
 
-### Claude Code
-
-Add to your Claude Code MCP config:
+### Claude Code (npx)
 
 ```json
 {
   "mcpServers": {
     "checkmarx": {
-      "command": "node",
-      "args": ["/path/to/checkmarx-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@nntndfrk/checkmarx-mcp"],
       "env": {
         "CHECKMARX_API_KEY": "your-api-key",
         "CHECKMARX_TENANT": "your-tenant"
@@ -65,7 +63,7 @@ Add to your Claude Code MCP config:
 }
 ```
 
-### Cursor
+### Cursor (npx)
 
 Add to `.cursor/mcp.json` in your workspace:
 
@@ -73,14 +71,25 @@ Add to `.cursor/mcp.json` in your workspace:
 {
   "mcpServers": {
     "checkmarx": {
-      "command": "node",
-      "args": ["/path/to/checkmarx-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@nntndfrk/checkmarx-mcp"],
       "env": {
         "CHECKMARX_API_KEY": "your-api-key",
         "CHECKMARX_TENANT": "your-tenant"
       }
     }
   }
+}
+```
+
+### From source
+
+If running from a local clone, replace `npx` with `node` and point to the built file:
+
+```json
+{
+  "command": "node",
+  "args": ["/path/to/checkmarx-mcp/dist/index.js"]
 }
 ```
 
