@@ -1,5 +1,8 @@
 # checkmarx-mcp
 
+[![npm](https://img.shields.io/npm/v/@nntndfrk/checkmarx-mcp)](https://www.npmjs.com/package/@nntndfrk/checkmarx-mcp)
+[![license](https://img.shields.io/npm/l/@nntndfrk/checkmarx-mcp)](https://github.com/nntndfrk/checkmarx-mcp/blob/main/LICENSE)
+
 MCP server providing AI coding agents with full programmatic access to the **Checkmarx One** security platform — projects, scans, findings, and scan triggering.
 
 ## Available Tools

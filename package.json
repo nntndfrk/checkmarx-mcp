@@ -1,6 +1,6 @@
 {
   "name": "@nntndfrk/checkmarx-mcp",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "MCP server providing AI coding agents with full programmatic access to the Checkmarx One security platform",
   "type": "module",
   "main": "dist/index.js",
@@ -32,6 +32,14 @@
     "claude",
     "cursor"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nntndfrk/checkmarx-mcp.git"
+  },
+  "homepage": "https://github.com/nntndfrk/checkmarx-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/nntndfrk/checkmarx-mcp/issues"
+  },
   "author": "Mykhailo Smolinskyi <nntndfrk@gmail.com>",
   "license": "MIT",
   "engines": {
