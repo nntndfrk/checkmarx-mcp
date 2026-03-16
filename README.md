@@ -2,63 +2,6 @@
 
 MCP server providing AI coding agents with full programmatic access to the **Checkmarx One** security platform — projects, scans, findings, and scan triggering.
 
-## Architecture
-
-```mermaid
-flowchart TB
-  subgraph clients [MCP Clients]
-    ClaudeCode[Claude Code]
-    CursorIDE[Cursor]
-    ClaudeDesktop[Claude Desktop]
-  end
-
-  subgraph server [checkmarx-mcp]
-    subgraph transport [Transport Layer]
-      StdioTransport[Stdio Transport]
-      HttpTransport[Express HTTP]
-    end
-
-    McpServer[McpServer]
-
-    subgraph tools [MCP Tools]
-      ProjectTools[health_check / list_projects / get_project]
-      ScanTools[list_scans / get_scan / trigger_scan_git / trigger_scan_local]
-      FindingTools[findings_summary / list_findings / get_finding_details]
-    end
-
-    subgraph apiLayer [API Client Layer]
-      Auth[OAuth2 Auth]
-      Client[REST Client]
-    end
-
-    ZipUtil[Zip Utility]
-    Config[Config / Zod]
-  end
-
-  CheckmarxOne[Checkmarx One Platform]
-
-  ClaudeCode -->|stdio| StdioTransport
-  CursorIDE -->|stdio| StdioTransport
-  ClaudeDesktop -->|HTTP| HttpTransport
-
-  StdioTransport --> McpServer
-  HttpTransport --> McpServer
-  McpServer --> ProjectTools
-  McpServer --> ScanTools
-  McpServer --> FindingTools
-
-  ProjectTools --> Client
-  ScanTools --> Client
-  ScanTools --> ZipUtil
-  FindingTools --> Client
-
-  Client --> Auth
-  Auth --> CheckmarxOne
-  Client --> CheckmarxOne
-  Config -.->|validates env| Auth
-  Config -.->|validates env| Client
-```
-
 ## Available Tools
 
 | Tool | Description |
