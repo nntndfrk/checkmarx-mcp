@@ -1,0 +1,65 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.nntndfrk/checkmarx-mcp",
+  "title": "Checkmarx One",
+  "description": "MCP server for Checkmarx One: projects, scans, findings, and triggering scans.",
+  "version": "0.1.6",
+  "websiteUrl": "https://github.com/nntndfrk/checkmarx-mcp#readme",
+  "repository": {
+    "url": "https://github.com/nntndfrk/checkmarx-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@nntndfrk/checkmarx-mcp",
+      "version": "0.1.6",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "CHECKMARX_API_KEY",
+          "description": "API key (refresh token) from Checkmarx One IAM → API Keys",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "CHECKMARX_TENANT",
+          "description": "Checkmarx One tenant name",
+          "isRequired": true
+        },
+        {
+          "name": "CHECKMARX_BASE_URL",
+          "description": "API base URL (US default; use eu.ast.checkmarx.net or deu.ast.checkmarx.net for other regions)",
+          "default": "https://ast.checkmarx.net"
+        },
+        {
+          "name": "CHECKMARX_IAM_URL",
+          "description": "IAM base URL (must match region; e.g. eu.iam.checkmarx.net for EU)",
+          "default": "https://iam.checkmarx.net"
+        },
+        {
+          "name": "CHECKMARX_PROJECT_ID",
+          "description": "Default project UUID (optional; tools accept per-call override)"
+        },
+        {
+          "name": "TRANSPORT",
+          "description": "stdio for local MCP clients; http for remote",
+          "default": "stdio"
+        },
+        {
+          "name": "PORT",
+          "description": "Listen port when TRANSPORT is http",
+          "default": "3000"
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Logging verbosity: debug, info, or error",
+          "default": "info"
+        }
+      ]
+    }
+  ]
+}

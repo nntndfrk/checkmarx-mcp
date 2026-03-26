@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CheckmarxAuth } from "../../src/api/auth.js";
 import type { Config } from "../../src/config.js";
 import { Logger } from "../../src/logger.js";
@@ -41,7 +41,7 @@ describe("CheckmarxAuth", () => {
   it("exchanges API key for access token", async () => {
     const expectedToken = tokenResponse();
 
-    globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       expect(url).toBe(
         "https://iam.checkmarx.net/auth/realms/test-tenant/protocol/openid-connect/token",
       );
@@ -68,7 +68,7 @@ describe("CheckmarxAuth", () => {
     let callCount = 0;
     const token = tokenResponse(300);
 
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       callCount++;
       return new Response(JSON.stringify(token), { status: 200 });
     }) as typeof fetch;
@@ -85,7 +85,7 @@ describe("CheckmarxAuth", () => {
   it("refreshes token after expiry", async () => {
     let callCount = 0;
 
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       callCount++;
       return new Response(
         JSON.stringify({ access_token: `token-${callCount}`, expires_in: 1, token_type: "Bearer" }),
@@ -108,33 +108,41 @@ describe("CheckmarxAuth", () => {
   it("uses regional IAM URL", async () => {
     let capturedUrl = "";
 
-    globalThis.fetch = mock(async (url: string | URL | Request) => {
+    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
       capturedUrl = String(url);
       return new Response(JSON.stringify(tokenResponse()), { status: 200 });
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig({ iamUrl: "https://eu.iam.checkmarx.net" }), silentLogger);
+    const auth = new CheckmarxAuth(
+      makeConfig({ iamUrl: "https://eu.iam.checkmarx.net" }),
+      silentLogger,
+    );
     await auth.getToken();
 
-    expect(capturedUrl).toStartWith("https://eu.iam.checkmarx.net/auth/realms/test-tenant/");
+    expect(capturedUrl.startsWith("https://eu.iam.checkmarx.net/auth/realms/test-tenant/")).toBe(
+      true,
+    );
   });
 
   it("strips trailing slashes from IAM URL", async () => {
     let capturedUrl = "";
 
-    globalThis.fetch = mock(async (url: string | URL | Request) => {
+    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
       capturedUrl = String(url);
       return new Response(JSON.stringify(tokenResponse()), { status: 200 });
     }) as typeof fetch;
 
-    const auth = new CheckmarxAuth(makeConfig({ iamUrl: "https://iam.checkmarx.net///" }), silentLogger);
+    const auth = new CheckmarxAuth(
+      makeConfig({ iamUrl: "https://iam.checkmarx.net///" }),
+      silentLogger,
+    );
     await auth.getToken();
 
-    expect(capturedUrl).toStartWith("https://iam.checkmarx.net/auth/realms/");
+    expect(capturedUrl.startsWith("https://iam.checkmarx.net/auth/realms/")).toBe(true);
   });
 
   it("throws on HTTP 401 with error details", async () => {
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       return new Response(
         JSON.stringify({ error: "invalid_grant", error_description: "Token is not active" }),
         { status: 401 },
@@ -147,7 +155,7 @@ describe("CheckmarxAuth", () => {
   });
 
   it("throws on HTTP 400 with guidance", async () => {
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       return new Response(
         JSON.stringify({
           error: "invalid_client",
@@ -163,7 +171,7 @@ describe("CheckmarxAuth", () => {
   });
 
   it("throws on network failure", async () => {
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       throw new TypeError("fetch failed");
     }) as typeof fetch;
 
@@ -173,7 +181,7 @@ describe("CheckmarxAuth", () => {
   });
 
   it("throws on non-JSON error response", async () => {
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       return new Response("Internal Server Error", {
         status: 500,
         statusText: "Internal Server Error",
@@ -188,7 +196,7 @@ describe("CheckmarxAuth", () => {
   it("deduplicates concurrent refresh calls", async () => {
     let callCount = 0;
 
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       callCount++;
       await new Promise((r) => setTimeout(r, 50));
       return new Response(
@@ -208,7 +216,7 @@ describe("CheckmarxAuth", () => {
   });
 
   it("throws on empty access_token in response", async () => {
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       return new Response(
         JSON.stringify({ access_token: "", expires_in: 300, token_type: "Bearer" }),
         { status: 200 },
@@ -221,7 +229,7 @@ describe("CheckmarxAuth", () => {
   });
 
   it("throws on invalid expires_in", async () => {
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       return new Response(
         JSON.stringify({ access_token: "valid-token", expires_in: -1, token_type: "Bearer" }),
         { status: 200 },
@@ -234,7 +242,7 @@ describe("CheckmarxAuth", () => {
   });
 
   it("throws on malformed success JSON", async () => {
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       return new Response("not json at all", {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -247,7 +255,7 @@ describe("CheckmarxAuth", () => {
   });
 
   it("includes error type in error message", async () => {
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       return new Response(
         JSON.stringify({ error: "invalid_grant", error_description: "Token expired" }),
         { status: 400 },
@@ -262,7 +270,7 @@ describe("CheckmarxAuth", () => {
   it("invalidateToken forces refresh on next getToken", async () => {
     let callCount = 0;
 
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = vi.fn(async () => {
       callCount++;
       return new Response(
         JSON.stringify({

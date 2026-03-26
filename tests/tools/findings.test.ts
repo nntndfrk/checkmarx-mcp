@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "bun:test";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { CheckmarxClient } from "../../src/api/client.js";
 import type {
   Finding,

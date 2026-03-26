@@ -1,5 +1,5 @@
-import { describe, expect, it, spyOn } from "bun:test";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { describe, expect, it, vi } from "vitest";
 import { startStdioTransport } from "../../src/transport/stdio.js";
 
 describe("startStdioTransport", () => {
@@ -9,8 +9,8 @@ describe("startStdioTransport", () => {
       { capabilities: { tools: {} } },
     );
 
-    const connectSpy = spyOn(server, "connect").mockResolvedValue(undefined);
-    const stderrSpy = spyOn(console, "error").mockImplementation(() => {});
+    const connectSpy = vi.spyOn(server, "connect").mockResolvedValue(undefined);
+    const stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
       const transport = await startStdioTransport(server);
@@ -30,8 +30,8 @@ describe("startStdioTransport", () => {
       { capabilities: { tools: {} } },
     );
 
-    const connectSpy = spyOn(server, "connect").mockRejectedValue(new Error("connect failed"));
-    const stderrSpy = spyOn(console, "error").mockImplementation(() => {});
+    const connectSpy = vi.spyOn(server, "connect").mockRejectedValue(new Error("connect failed"));
+    const stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
       await expect(startStdioTransport(server)).rejects.toThrow("connect failed");

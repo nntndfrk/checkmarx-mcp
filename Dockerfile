@@ -1,13 +1,14 @@
-FROM oven/bun:1.3 AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+COPY package.json package-lock.json ./
+RUN npm ci
 
+COPY scripts/ scripts/
 COPY src/ src/
 COPY tsconfig.json ./
-RUN bun build src/index.ts --outdir dist --target node
+RUN npm run build
 
 FROM node:22-slim
 
@@ -16,8 +17,12 @@ RUN groupadd --system --gid 1001 appuser && \
 
 WORKDIR /app
 
-COPY --from=builder --chown=appuser:appuser /app/dist/index.js ./dist/index.js
-COPY --from=builder --chown=appuser:appuser /app/package.json ./
+COPY --from=builder /app/package.json /app/package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY --from=builder /app/dist/ ./dist/
+
+RUN chown -R appuser:appuser /app
 
 USER appuser
 

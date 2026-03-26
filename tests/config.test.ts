@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
 
 describe("loadConfig", () => {
@@ -129,7 +129,7 @@ describe("loadConfig", () => {
 
     try {
       loadConfig();
-      expect.unreachable("should have thrown");
+      throw new Error("should have thrown");
     } catch (error) {
       const message = (error as Error).message;
       expect(message).toContain("checkmarx.apiKey");
