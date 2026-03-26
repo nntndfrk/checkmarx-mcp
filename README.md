@@ -120,23 +120,23 @@ docker run -p 3000:3000 \
 
 ```bash
 # Install dependencies
-bun install
+npm install
 
 # Run in dev mode (stdio)
-CHECKMARX_API_KEY=your-key CHECKMARX_TENANT=your-tenant bun run dev
+CHECKMARX_API_KEY=your-key CHECKMARX_TENANT=your-tenant npm run dev
 
 # Build for production
-bun run build
+npm run build
 
 # Run tests
-bun test
+npm test
 
 # Type check
-bun run typecheck
+npm run typecheck
 
 # Lint & format
-bun run lint
-bun run format
+npm run lint
+npm run format
 ```
 
 ## Example Prompts

@@ -3,13 +3,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CheckmarxAuth } from "./api/auth.js";
 import { CheckmarxClient } from "./api/client.js";
 import { loadConfig } from "./config.js";
+import { SERVER_NAME } from "./constants.js";
 import { createLogger } from "./logger.js";
 import { registerAllTools } from "./tools/index.js";
 import { startHttpTransport } from "./transport/http.js";
 import { startStdioTransport } from "./transport/stdio.js";
+import { getPackageVersion } from "./version.js";
 
-const SERVER_NAME = "checkmarx-mcp";
-const SERVER_VERSION = "0.1.0";
+const SERVER_VERSION = getPackageVersion();
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -47,7 +48,10 @@ async function main(): Promise<void> {
     console.error(`[${SERVER_NAME}] Shutting down...`);
     try {
       if (httpServer) {
-        httpServer.close();
+        const srv = httpServer;
+        await new Promise<void>((resolve, reject) => {
+          srv.close((err) => (err ? reject(err) : resolve()));
+        });
       }
     } catch (err) {
       console.error(`[${SERVER_NAME}] Error during shutdown:`, err);

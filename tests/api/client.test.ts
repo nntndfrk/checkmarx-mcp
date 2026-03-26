@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CheckmarxAuth } from "../../src/api/auth.js";
 import { CheckmarxClient, CheckmarxRequestError } from "../../src/api/client.js";
 import type { Config } from "../../src/config.js";
@@ -90,14 +90,18 @@ describe("CheckmarxClient", () => {
   const silentLogger = new Logger("error");
 
   function createClient(configOverrides: Partial<Config["checkmarx"]> = {}) {
-    return new CheckmarxClient(makeConfig(configOverrides), mockAuth as unknown as CheckmarxAuth, silentLogger);
+    return new CheckmarxClient(
+      makeConfig(configOverrides),
+      mockAuth as unknown as CheckmarxAuth,
+      silentLogger,
+    );
   }
 
   describe("request mechanics", () => {
     it("injects Authorization header", async () => {
       let capturedHeaders: Record<string, string> = {};
 
-      globalThis.fetch = mock(async (_url: string | URL | Request, init?: RequestInit) => {
+      globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
         capturedHeaders = Object.fromEntries(Object.entries(init?.headers ?? {})) as Record<
           string,
           string
@@ -114,7 +118,7 @@ describe("CheckmarxClient", () => {
     it("retries on 5xx with delay", async () => {
       let callCount = 0;
 
-      globalThis.fetch = mock(async () => {
+      globalThis.fetch = vi.fn(async () => {
         callCount++;
         if (callCount === 1) {
           return new Response("Server Error", { status: 500 });
@@ -132,7 +136,7 @@ describe("CheckmarxClient", () => {
     it("retries on 429 with Retry-After header", async () => {
       let callCount = 0;
 
-      globalThis.fetch = mock(async () => {
+      globalThis.fetch = vi.fn(async () => {
         callCount++;
         if (callCount === 1) {
           return new Response("Rate limited", {
@@ -151,7 +155,7 @@ describe("CheckmarxClient", () => {
     });
 
     it("throws CheckmarxRequestError on 4xx", async () => {
-      globalThis.fetch = mock(async () => {
+      globalThis.fetch = vi.fn(async () => {
         return new Response(JSON.stringify({ code: 404, message: "Project not found" }), {
           status: 404,
         });
@@ -161,7 +165,7 @@ describe("CheckmarxClient", () => {
 
       try {
         await client.getProject("nonexistent");
-        expect.unreachable("should have thrown");
+        throw new Error("should have thrown");
       } catch (error) {
         expect(error).toBeInstanceOf(CheckmarxRequestError);
         const reqError = error as CheckmarxRequestError;
@@ -174,7 +178,7 @@ describe("CheckmarxClient", () => {
     it("throws on persistent 5xx after retry", async () => {
       let callCount = 0;
 
-      globalThis.fetch = mock(async () => {
+      globalThis.fetch = vi.fn(async () => {
         callCount++;
         return new Response("Server Error", { status: 502 });
       }) as typeof fetch;
@@ -183,7 +187,7 @@ describe("CheckmarxClient", () => {
 
       try {
         await client.listProjects();
-        expect.unreachable("should have thrown");
+        throw new Error("should have thrown");
       } catch (error) {
         expect(error).toBeInstanceOf(CheckmarxRequestError);
         expect((error as CheckmarxRequestError).statusCode).toBe(502);
@@ -194,7 +198,7 @@ describe("CheckmarxClient", () => {
     it("throws on persistent 429 after retry", async () => {
       let callCount = 0;
 
-      globalThis.fetch = mock(async () => {
+      globalThis.fetch = vi.fn(async () => {
         callCount++;
         return new Response("Rate limited", { status: 429 });
       }) as typeof fetch;
@@ -203,7 +207,7 @@ describe("CheckmarxClient", () => {
 
       try {
         await client.listProjects();
-        expect.unreachable("should have thrown");
+        throw new Error("should have thrown");
       } catch (error) {
         expect(error).toBeInstanceOf(CheckmarxRequestError);
         expect((error as CheckmarxRequestError).statusCode).toBe(429);
@@ -212,7 +216,7 @@ describe("CheckmarxClient", () => {
     });
 
     it("handles 4xx with non-JSON response body", async () => {
-      globalThis.fetch = mock(async () => {
+      globalThis.fetch = vi.fn(async () => {
         return new Response("<html>Not Found</html>", {
           status: 404,
           statusText: "Not Found",
@@ -224,7 +228,7 @@ describe("CheckmarxClient", () => {
 
       try {
         await client.getProject("bad-id");
-        expect.unreachable("should have thrown");
+        throw new Error("should have thrown");
       } catch (error) {
         expect(error).toBeInstanceOf(CheckmarxRequestError);
         const reqError = error as CheckmarxRequestError;
@@ -234,7 +238,7 @@ describe("CheckmarxClient", () => {
     });
 
     it("throws on network failure", async () => {
-      globalThis.fetch = mock(async () => {
+      globalThis.fetch = vi.fn(async () => {
         throw new TypeError("fetch failed");
       }) as typeof fetch;
 
@@ -263,7 +267,7 @@ describe("CheckmarxClient", () => {
 
   describe("healthCheck", () => {
     it("returns ok on successful API call", async () => {
-      globalThis.fetch = mock(async () => {
+      globalThis.fetch = vi.fn(async () => {
         return new Response(JSON.stringify(mockProjectResponse), { status: 200 });
       }) as typeof fetch;
 
@@ -275,7 +279,7 @@ describe("CheckmarxClient", () => {
     });
 
     it("returns not ok on API failure", async () => {
-      globalThis.fetch = mock(async () => {
+      globalThis.fetch = vi.fn(async () => {
         throw new TypeError("Network error");
       }) as typeof fetch;
 
@@ -291,7 +295,7 @@ describe("CheckmarxClient", () => {
     it("sends correct query parameters", async () => {
       let capturedUrl = "";
 
-      globalThis.fetch = mock(async (url: string | URL | Request) => {
+      globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
         capturedUrl = String(url);
         return new Response(JSON.stringify(mockProjectResponse), { status: 200 });
       }) as typeof fetch;
@@ -307,7 +311,7 @@ describe("CheckmarxClient", () => {
     it("uses default limit and offset", async () => {
       let capturedUrl = "";
 
-      globalThis.fetch = mock(async (url: string | URL | Request) => {
+      globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
         capturedUrl = String(url);
         return new Response(JSON.stringify(mockProjectResponse), { status: 200 });
       }) as typeof fetch;
@@ -324,7 +328,7 @@ describe("CheckmarxClient", () => {
     it("sends project-id and statuses filters", async () => {
       let capturedUrl = "";
 
-      globalThis.fetch = mock(async (url: string | URL | Request) => {
+      globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
         capturedUrl = String(url);
         return new Response(JSON.stringify(mockScanResponse), { status: 200 });
       }) as typeof fetch;
@@ -347,7 +351,7 @@ describe("CheckmarxClient", () => {
       let capturedUrl = "";
       const emptyResults = { totalCount: 0, filteredTotalCount: 0, results: [] };
 
-      globalThis.fetch = mock(async (url: string | URL | Request) => {
+      globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
         capturedUrl = String(url);
         return new Response(JSON.stringify(emptyResults), { status: 200 });
       }) as typeof fetch;
@@ -372,7 +376,7 @@ describe("CheckmarxClient", () => {
     it("sends correct scan request body", async () => {
       let capturedBody: Record<string, unknown> = {};
 
-      globalThis.fetch = mock(async (_url: string | URL | Request, init?: RequestInit) => {
+      globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
         if (init?.body) capturedBody = JSON.parse(init.body as string);
         return new Response(JSON.stringify(mockScanResponse.scans[0]), { status: 200 });
       }) as typeof fetch;
@@ -401,7 +405,7 @@ describe("CheckmarxClient", () => {
     it("fetches a single scan by ID", async () => {
       let capturedUrl = "";
 
-      globalThis.fetch = mock(async (url: string | URL | Request) => {
+      globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
         capturedUrl = String(url);
         return new Response(JSON.stringify(mockScanResponse.scans[0]), { status: 200 });
       }) as typeof fetch;
@@ -425,7 +429,7 @@ describe("CheckmarxClient", () => {
         statusCounters: [{ status: "NEW", counter: 8 }],
       };
 
-      globalThis.fetch = mock(async (url: string | URL | Request) => {
+      globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
         capturedUrl = String(url);
         return new Response(JSON.stringify(summaryResponse), { status: 200 });
       }) as typeof fetch;
@@ -442,7 +446,7 @@ describe("CheckmarxClient", () => {
     it("orchestrates upload then scan creation", async () => {
       const calls: { url: string; method: string; body?: string }[] = [];
 
-      globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+      globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
         const urlStr = String(url);
         const method = init?.method ?? "GET";
         const body = typeof init?.body === "string" ? init.body : undefined;
@@ -491,7 +495,7 @@ describe("CheckmarxClient", () => {
       let capturedMethod = "";
       let capturedUrl = "";
 
-      globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+      globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
         capturedUrl = String(url);
         capturedMethod = init?.method ?? "GET";
         return new Response(null, { status: 200 });
@@ -505,7 +509,7 @@ describe("CheckmarxClient", () => {
     });
 
     it("throws on upload failure", async () => {
-      globalThis.fetch = mock(async () => {
+      globalThis.fetch = vi.fn(async () => {
         return new Response("Forbidden", { status: 403 });
       }) as typeof fetch;
 

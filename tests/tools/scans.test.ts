@@ -1,8 +1,8 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { CheckmarxClient } from "../../src/api/client.js";
 import { registerScanTools } from "../../src/tools/scans.js";
 

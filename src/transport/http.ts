@@ -2,8 +2,10 @@ import type { Server as HttpServer } from "node:http";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express from "express";
+import { SERVER_NAME } from "../constants.js";
+import { getPackageVersion } from "../version.js";
 
-const SERVER_NAME = "checkmarx-mcp";
+const SERVER_VERSION = getPackageVersion();
 
 export type McpServerFactory = () => McpServer;
 
@@ -50,8 +52,9 @@ export async function startHttpTransport(
     }
 
     res.on("close", () => {
-      transport.close();
-      server.close();
+      void Promise.all([transport.close(), server.close()]).catch((closeErr) => {
+        console.error("[checkmarx-mcp] Error closing MCP session:", closeErr);
+      });
     });
   });
 
@@ -70,7 +73,7 @@ export async function startHttpTransport(
   app.get("/", (_req, res) => {
     res.json({
       name: SERVER_NAME,
-      version: "0.1.0",
+      version: SERVER_VERSION,
       transport: "http",
       endpoints: {
         mcp: "POST /mcp",

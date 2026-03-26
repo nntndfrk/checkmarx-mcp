@@ -1,18 +1,25 @@
-import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
+import { readFileSync } from "node:fs";
 import type { Server as HttpServer } from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { McpServerFactory } from "../../src/transport/http.js";
 import { startHttpTransport } from "../../src/transport/http.js";
 
+const packageVersion = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../package.json"), "utf8"),
+).version as string;
+
 const TEST_PORT = 19876;
-let stderrSpy: ReturnType<typeof spyOn>;
+let stderrSpy: ReturnType<typeof vi.spyOn>;
 let httpServer: HttpServer;
 
 const createTestServer: McpServerFactory = () =>
   new McpServer({ name: "test", version: "0.0.1" }, { capabilities: { tools: {} } });
 
 beforeAll(async () => {
-  stderrSpy = spyOn(console, "error").mockImplementation(() => {});
+  stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   httpServer = await startHttpTransport(createTestServer, TEST_PORT);
 });
 
@@ -34,6 +41,7 @@ describe("HTTP transport", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.name).toBe("checkmarx-mcp");
+    expect(body.version).toBe(packageVersion);
     expect(body.transport).toBe("http");
     expect(body.endpoints).toBeDefined();
   });
