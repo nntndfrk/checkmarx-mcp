@@ -316,10 +316,44 @@ export class CheckmarxClient {
     return this.request<Scan>("/api/scans", { method: "POST", body: request });
   }
 
+  async createContainerImageScan(params: {
+    projectId?: string;
+    image: string;
+    branch?: string;
+  }): Promise<Scan> {
+    const { synthesizeDockerfileZip } = await import("../utils/zip.js");
+    const zipBuffer = await synthesizeDockerfileZip(params.image);
+    return this.createScanFromUpload({
+      projectId: params.projectId,
+      zipBuffer,
+      branch: params.branch ?? `image-scan-${sanitizeImageRef(params.image)}`,
+      scanTypes: ["containers"],
+    });
+  }
+
   private buildScanConfig(scanTypes?: ScanType[]): ScanConfig[] {
     const types = scanTypes ?? (["sast", "sca", "kics"] satisfies ScanType[]);
-    return types.map((type) => ({ type, value: {} }));
+    const requested = new Set<ScanType>(types);
+    const pairsWithContainers = requested.has("containers") && requested.has("sca");
+
+    return types.map((type) => {
+      if (type === "sca" && pairsWithContainers) {
+        return { type: "sca", value: { enableContainersScan: "false" } };
+      }
+      return { type, value: {} };
+    });
   }
+}
+
+function sanitizeImageRef(image: string): string {
+  return (
+    image
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 63) || "image"
+  );
 }
 
 export class CheckmarxRequestError extends Error {

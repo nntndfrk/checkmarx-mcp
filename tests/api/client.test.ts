@@ -401,6 +401,62 @@ describe("CheckmarxClient", () => {
     });
   });
 
+  describe("buildScanConfig (via createScanFromGit)", () => {
+    async function captureConfig(
+      scanTypes: import("../../src/api/types.js").ScanType[] | undefined,
+    ) {
+      let capturedBody: Record<string, unknown> = {};
+      globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.body) capturedBody = JSON.parse(init.body as string);
+        return new Response(JSON.stringify(mockScanResponse.scans[0]), { status: 200 });
+      }) as typeof fetch;
+
+      const client = createClient({ projectId: "proj-1" });
+      await client.createScanFromGit({
+        repoUrl: "https://github.com/org/repo",
+        branch: "main",
+        scanTypes,
+      });
+      return capturedBody.config;
+    }
+
+    it("defaults to sast, sca, kics when scanTypes is undefined", async () => {
+      const config = await captureConfig(undefined);
+      expect(config).toEqual([
+        { type: "sast", value: {} },
+        { type: "sca", value: {} },
+        { type: "kics", value: {} },
+      ]);
+    });
+
+    it("keeps sca-only request unchanged", async () => {
+      const config = await captureConfig(["sca"]);
+      expect(config).toEqual([{ type: "sca", value: {} }]);
+    });
+
+    it("keeps containers-only request unchanged", async () => {
+      const config = await captureConfig(["containers"]);
+      expect(config).toEqual([{ type: "containers", value: {} }]);
+    });
+
+    it("injects enableContainersScan=false when sca and containers co-requested", async () => {
+      const config = await captureConfig(["sca", "containers"]);
+      expect(config).toEqual([
+        { type: "sca", value: { enableContainersScan: "false" } },
+        { type: "containers", value: {} },
+      ]);
+    });
+
+    it("applies sca override with sast + sca + containers", async () => {
+      const config = await captureConfig(["sast", "sca", "containers"]);
+      expect(config).toEqual([
+        { type: "sast", value: {} },
+        { type: "sca", value: { enableContainersScan: "false" } },
+        { type: "containers", value: {} },
+      ]);
+    });
+  });
+
   describe("getScan", () => {
     it("fetches a single scan by ID", async () => {
       let capturedUrl = "";

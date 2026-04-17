@@ -1,6 +1,6 @@
 {
   "name": "@nntndfrk/checkmarx-mcp",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "MCP server providing AI coding agents with full programmatic access to the Checkmarx One security platform",
   "type": "module",
   "main": "dist/index.js",

@@ -16,9 +16,14 @@ MCP server providing AI coding agents with full programmatic access to the **Che
 | `get_scan` | Get scan details (use to poll status) |
 | `trigger_scan_git` | Start a scan from a Git repository URL |
 | `trigger_scan_local` | Zip and upload a local directory for scanning |
-| `findings_summary` | Severity breakdown by scanner type |
-| `list_findings` | List findings with severity/type/state filters |
-| `get_finding_details` | Full finding data flow (SAST) or CVE chain (SCA) |
+| `trigger_scan_image` | Scan an arbitrary public container image by reference (Container Security) |
+| `findings_summary` | Severity breakdown reshaped into `perEngine` + top-level `containersCounters` / `scaContainersCounters` |
+| `list_findings` | List findings with severity/type/state filters. Supports `type: ["containers"]`; containers findings include `imageName`, `imageTag`, `baseImage`, `packageName/Version`, `recommendedImage`, and CVE/CVSS |
+| `get_finding_details` | Full finding data flow (SAST) or CVE chain (SCA / Containers) |
+
+All scan-trigger tools accept a `scanTypes` array. Valid values:
+`sast`, `sca`, `kics`, `apisec`, `secrets`, `containers`.
+Defaults remain `["sast", "sca", "kics"]` — Container Security is opt-in.
 
 ## Setup
 
@@ -180,6 +185,50 @@ npm run format
 ### Monitor scan progress
 
 > "Trigger a SAST-only scan of the current directory, then poll until it completes and show the results."
+
+### Scan a base image for CVEs
+
+> "Scan nginx:1.27-alpine-slim and tell me what CVEs are in it. Prioritize HIGH and CRITICAL."
+
+### Audit Dockerfile base images in a repo
+
+> "Scan this repo including container security, then list the containers findings grouped by base image and recommend upgrades."
+
+## Container Security
+
+The MCP exposes the Checkmarx One Container Security engine in two flavors:
+
+### Dockerfile-based (inside a repo/local scan)
+
+Add `"containers"` to `scanTypes` when triggering a scan of code that contains a
+`Dockerfile`. Checkmarx will resolve each `FROM` image, extract its package
+inventory, and flag CVEs in those base-image layers.
+
+```text
+trigger_scan_local({
+  directory: "/path/to/app",
+  scanTypes: ["sast", "sca", "kics", "containers"]
+})
+```
+
+When `sca` and `containers` are requested together, the MCP automatically emits
+`enableContainersScan: "false"` on the SCA engine (per Checkmarx docs) so the
+two engines don't double-report base-image packages.
+
+### Image-only (no Dockerfile required)
+
+`trigger_scan_image` scans any public image reference by synthesizing a minimal
+Docker context (`FROM <image>`) and uploading it. It works for any public
+registry — Docker Hub, GHCR, public ECR, Quay.
+
+```text
+trigger_scan_image({ image: "nginx:1.27-alpine-slim" })
+trigger_scan_image({ image: "ghcr.io/org/app:v1" })
+trigger_scan_image({ image: "nginx@sha256:<digest>" })
+```
+
+For **private registries**, configure a Private Registry Integration in
+Checkmarx One first. Local `docker pull` is not used by the MCP.
 
 ## Troubleshooting
 
