@@ -4,7 +4,12 @@ import type { CheckmarxClient } from "../api/client.js";
 import type { ScanType } from "../api/types.js";
 
 const ScanStatusEnum = z.enum(["Queued", "Running", "Completed", "Failed", "Partial", "Canceled"]);
-const ScanTypeEnum = z.enum(["sast", "sca", "kics", "apisec", "secrets"]);
+const ScanTypeEnum = z.enum(["sast", "sca", "kics", "apisec", "secrets", "containers"]);
+
+// Permissive image reference matcher: [registry[:port]/][namespace/]name[:tag][@digest]
+// Covers docker.io/library defaults, GHCR, public ECR, Quay, and digest-pinned refs.
+const IMAGE_REF_REGEX =
+  /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-f0-9]{64})?$/;
 
 export function registerScanTools(server: McpServer, client: CheckmarxClient): void {
   server.tool(
@@ -98,7 +103,11 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
       scanTypes: z
         .array(ScanTypeEnum)
         .optional()
-        .describe("Scanner engines to run (defaults to sast, sca, kics)"),
+        .describe(
+          "Scanner engines to run (defaults to sast, sca, kics). " +
+            "Use 'containers' to scan Dockerfiles and their base image layers for CVEs. " +
+            "Combining 'sca' and 'containers' automatically sets enableContainersScan=false on the SCA engine.",
+        ),
     },
     async ({ projectId, repoUrl, branch, scanTypes }) => {
       try {
@@ -156,7 +165,11 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
       scanTypes: z
         .array(ScanTypeEnum)
         .optional()
-        .describe("Scanner engines to run (defaults to sast, sca, kics)"),
+        .describe(
+          "Scanner engines to run (defaults to sast, sca, kics). " +
+            "Use 'containers' to scan Dockerfiles and their base image layers for CVEs. " +
+            "Combining 'sca' and 'containers' automatically sets enableContainersScan=false on the SCA engine.",
+        ),
       excludePatterns: z
         .array(z.string())
         .optional()
@@ -201,6 +214,72 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
             {
               type: "text",
               text: `Error triggering local scan: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "trigger_scan_image",
+    "Scan a specific container image (e.g. 'nginx:1.27-alpine-slim', 'ghcr.io/org/app:v1') via Checkmarx Container Security. " +
+      "Works for any public registry (Docker Hub, GHCR, public ECR, Quay). Returns a scan ID for polling. " +
+      "For private registries, set up a Private Registry Integration in Checkmarx One first.",
+    {
+      projectId: z
+        .string()
+        .uuid()
+        .optional()
+        .describe("Project UUID (uses CHECKMARX_PROJECT_ID if not provided)"),
+      image: z
+        .string()
+        .min(1)
+        .regex(
+          IMAGE_REF_REGEX,
+          "Invalid image reference. Expected forms: name:tag, registry/ns/name:tag, name@sha256:<digest>",
+        )
+        .describe(
+          "Image reference in {name}:{tag} form, optionally with registry prefix or @sha256 digest",
+        ),
+      branch: z
+        .string()
+        .optional()
+        .describe("Branch label for the scan (defaults to a sanitized form of the image ref)"),
+    },
+    async ({ projectId, image, branch }) => {
+      try {
+        const scan = await client.createContainerImageScan({
+          projectId,
+          image,
+          branch,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  message:
+                    "Container image scan triggered successfully. Use get_scan to poll for completion.",
+                  scanId: scan.id,
+                  status: scan.status,
+                  projectId: scan.projectId,
+                  image,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error triggering image scan: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
           isError: true,

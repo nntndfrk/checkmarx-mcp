@@ -55,6 +55,11 @@ function createMockClient(overrides: Partial<CheckmarxClient> = {}): CheckmarxCl
       id: "scan-upload",
       status: "Queued" as const,
     }),
+    createContainerImageScan: async () => ({
+      ...mockScan,
+      id: "scan-image",
+      status: "Queued" as const,
+    }),
     resolveProjectId: (id?: string) => id ?? "default-proj-id",
     ...overrides,
   } as unknown as CheckmarxClient;
@@ -226,6 +231,51 @@ describe("Scan Tools", () => {
 
       expect(result.isError).toBeUndefined();
       expect(parsed.scanId).toBe("scan-upload");
+    });
+  });
+
+  describe("trigger_scan_image", () => {
+    it("returns scan ID and echoes the image reference", async () => {
+      let capturedParams: { projectId?: string; image: string; branch?: string } | undefined;
+      const client = createMockClient({
+        createContainerImageScan: async (params) => {
+          capturedParams = params;
+          return {
+            ...mockScan,
+            id: "scan-image",
+            status: "Queued" as const,
+          };
+        },
+      } as Partial<CheckmarxClient>);
+      registerScanTools(server, client);
+
+      const result = await callTool(server, "trigger_scan_image", {
+        projectId: "550e8400-e29b-41d4-a716-446655440000",
+        image: "nginx:1.27-alpine-slim",
+      });
+      const parsed = JSON.parse(result.content[0]?.text);
+
+      expect(result.isError).toBeUndefined();
+      expect(parsed.scanId).toBe("scan-image");
+      expect(parsed.image).toBe("nginx:1.27-alpine-slim");
+      expect(parsed.message).toContain("Container image scan triggered successfully");
+      expect(capturedParams?.image).toBe("nginx:1.27-alpine-slim");
+    });
+
+    it("surfaces client errors", async () => {
+      const client = createMockClient({
+        createContainerImageScan: async () => {
+          throw new Error("Upload failed with HTTP 403");
+        },
+      } as Partial<CheckmarxClient>);
+      registerScanTools(server, client);
+
+      const result = await callTool(server, "trigger_scan_image", {
+        image: "nginx:latest",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toContain("Upload failed");
     });
   });
 });

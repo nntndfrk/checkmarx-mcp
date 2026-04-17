@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CheckmarxClient } from "../../src/api/client.js";
 import type {
+  ContainersFindingData,
   Finding,
   KicsFindingData,
   SastFindingData,
@@ -110,12 +111,43 @@ const mockKicsFinding: Finding<"kics"> = {
   },
 };
 
+const mockContainersFinding: Finding<"containers"> = {
+  id: "finding-containers-1",
+  type: "containers",
+  similarityId: "sim-4",
+  status: "NEW",
+  state: "TO_VERIFY",
+  severity: "HIGH",
+  createdAt: "2024-06-01T00:00:00Z",
+  firstFoundAt: "2024-06-01T00:00:00Z",
+  foundAt: "2024-06-01T00:00:00Z",
+  firstScanId: "scan-1",
+  description: "OpenSSL DoS vulnerability in nginx:alpine-slim base image",
+  data: {
+    packageIdentifier: "alpine:openssl:3.3.1-r0",
+    packageName: "openssl",
+    packageVersion: "3.3.1-r0",
+    imageName: "nginx",
+    imageTag: "alpine-slim",
+    imageDigest: "sha256:deadbeef",
+    baseImage: "alpine:3.19",
+    layerId: "layer-abc",
+    recommendedVersion: "3.3.2-r0",
+    recommendedImage: "nginx:1.27-alpine-slim",
+    recommendation: "Upgrade openssl to 3.3.2-r0 or switch base image",
+  },
+  vulnerabilityDetails: {
+    cveId: "CVE-2024-5535",
+    cvssScore: 7.5,
+  },
+};
+
 function createMockClient(overrides: Partial<CheckmarxClient> = {}): CheckmarxClient {
   return {
     getFindings: async () => ({
-      totalCount: 3,
-      filteredTotalCount: 3,
-      items: [mockSastFinding, mockScaFinding, mockKicsFinding] as Finding[],
+      totalCount: 4,
+      filteredTotalCount: 4,
+      items: [mockSastFinding, mockScaFinding, mockKicsFinding, mockContainersFinding] as Finding[],
     }),
     getFindingSummary: async () => ({
       scanId: "scan-1",
@@ -182,6 +214,58 @@ describe("Finding Tools", () => {
       expect(result.isError).toBe(true);
       expect(result.content[0]?.text).toContain("Scan not found");
     });
+
+    it("surfaces per-engine counters including containersCounters", async () => {
+      const client = createMockClient({
+        getFindingSummary: async () => ({
+          scanId: "scan-1",
+          totalCounter: 15,
+          counters: [
+            { type: "sast" as const, severity: "HIGH" as const, counter: 5 },
+            { type: "containers" as const, severity: "HIGH" as const, counter: 5 },
+            { type: "containers" as const, severity: "CRITICAL" as const, counter: 2 },
+            { type: "kics" as const, severity: "MEDIUM" as const, counter: 3 },
+          ],
+          statusCounters: [{ status: "NEW", counter: 15 }],
+        }),
+      });
+      registerFindingTools(server, client);
+
+      const result = await callTool(server, "findings_summary", {
+        scanId: "550e8400-e29b-41d4-a716-446655440000",
+      });
+      const parsed = JSON.parse(result.content[0]?.text);
+
+      expect(parsed.totalCounter).toBe(15);
+      expect(parsed.perEngine.containers.totalCounter).toBe(7);
+      expect(parsed.perEngine.containers.severityCounters).toHaveLength(2);
+      expect(parsed.containersCounters.totalCounter).toBe(7);
+      expect(parsed.perEngine.sast.totalCounter).toBe(5);
+    });
+
+    it("prefers raw containersCounters when API provides it", async () => {
+      const client = createMockClient({
+        getFindingSummary: async () => ({
+          scanId: "scan-1",
+          totalCounter: 5,
+          counters: [],
+          statusCounters: [],
+          containersCounters: {
+            totalCounter: 5,
+            severityCounters: [{ severity: "HIGH" as const, counter: 5 }],
+          },
+        }),
+      });
+      registerFindingTools(server, client);
+
+      const result = await callTool(server, "findings_summary", {
+        scanId: "550e8400-e29b-41d4-a716-446655440000",
+      });
+      const parsed = JSON.parse(result.content[0]?.text);
+
+      expect(parsed.containersCounters.totalCounter).toBe(5);
+      expect(parsed.containersCounters.severityCounters[0].severity).toBe("HIGH");
+    });
   });
 
   describe("list_findings", () => {
@@ -226,6 +310,31 @@ describe("Finding Tools", () => {
       expect(scaFinding.cveId).toBe("CVE-2021-23337");
       expect(scaFinding.cvssScore).toBe(7.2);
       expect(scaFinding.recommendedVersion).toBe("4.17.21");
+    });
+
+    it("shapes containers findings with image, package, CVE, and recommended image", async () => {
+      const client = createMockClient();
+      registerFindingTools(server, client);
+
+      const result = await callTool(server, "list_findings", {
+        scanId: "550e8400-e29b-41d4-a716-446655440000",
+        limit: 20,
+        offset: 0,
+      });
+      const parsed = JSON.parse(result.content[0]?.text);
+      const containersFinding = parsed.findings[3];
+
+      expect(containersFinding.type).toBe("containers");
+      expect(containersFinding.packageIdentifier).toBe("alpine:openssl:3.3.1-r0");
+      expect(containersFinding.packageName).toBe("openssl");
+      expect(containersFinding.packageVersion).toBe("3.3.1-r0");
+      expect(containersFinding.imageName).toBe("nginx");
+      expect(containersFinding.imageTag).toBe("alpine-slim");
+      expect(containersFinding.baseImage).toBe("alpine:3.19");
+      expect(containersFinding.recommendedImage).toBe("nginx:1.27-alpine-slim");
+      expect(containersFinding.recommendedVersion).toBe("3.3.2-r0");
+      expect(containersFinding.cveId).toBe("CVE-2024-5535");
+      expect(containersFinding.cvssScore).toBe(7.5);
     });
 
     it("shapes KICS findings with file and platform", async () => {

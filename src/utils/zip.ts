@@ -8,6 +8,7 @@ const DEFAULT_EXCLUDES = [
   "**/.git/**",
   "**/dist/**",
   "**/build/**",
+  "**/out-tsc/**",
   "**/.next/**",
   "**/.angular/**",
   "**/__pycache__/**",
@@ -82,6 +83,53 @@ export async function zipDirectory(
     });
 
     archive.glob("**/*", { cwd: absolutePath, ignore, dot: true });
+    archive.finalize();
+  });
+}
+
+/**
+ * Builds an in-memory zip containing a single minimal `Dockerfile` with
+ * `FROM <image>\n`. Used by the Container Security engine to scan an arbitrary
+ * public image reference without requiring a real project source tree.
+ */
+export async function synthesizeDockerfileZip(image: string): Promise<Buffer> {
+  if (!image || image.trim() === "") {
+    throw new Error("Image reference cannot be empty");
+  }
+
+  const dockerfile = `FROM ${image.trim()}\n`;
+
+  return new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const passthrough = new PassThrough();
+
+    passthrough.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+
+    const archive = archiver("zip", { store: true });
+
+    archive.on("error", (err) => {
+      reject(new Error(`Archive error: ${err.message}`));
+    });
+
+    archive.on("warning", (err) => {
+      if (err.code === "ENOENT") return;
+      reject(new Error(`Archive warning: ${err.message}`));
+    });
+
+    archive.pipe(passthrough);
+
+    passthrough.on("end", () => {
+      const buffer = Buffer.concat(chunks);
+      if (buffer.length === 0) {
+        reject(new Error("Synthesized Dockerfile zip produced empty output"));
+        return;
+      }
+      resolve(buffer);
+    });
+
+    archive.append(dockerfile, { name: "Dockerfile" });
     archive.finalize();
   });
 }

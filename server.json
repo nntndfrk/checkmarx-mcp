@@ -3,7 +3,7 @@
   "name": "io.github.nntndfrk/checkmarx-mcp",
   "title": "Checkmarx One",
   "description": "MCP server for Checkmarx One: projects, scans, findings, and triggering scans.",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "websiteUrl": "https://github.com/nntndfrk/checkmarx-mcp#readme",
   "repository": {
     "url": "https://github.com/nntndfrk/checkmarx-mcp",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@nntndfrk/checkmarx-mcp",
-      "version": "0.1.6",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },

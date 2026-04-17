@@ -2,8 +2,11 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { CheckmarxClient } from "../api/client.js";
 import type {
+  ContainersFindingData,
+  EngineCounters,
   Finding,
   FindingState,
+  FindingSummary,
   KicsFindingData,
   SastFindingData,
   ScaFindingData,
@@ -12,7 +15,7 @@ import type {
 } from "../api/types.js";
 
 const SeverityEnum = z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]);
-const ScanTypeEnum = z.enum(["sast", "sca", "kics", "apisec", "secrets"]);
+const ScanTypeEnum = z.enum(["sast", "sca", "kics", "apisec", "secrets", "containers"]);
 const FindingStateEnum = z.enum([
   "TO_VERIFY",
   "CONFIRMED",
@@ -39,7 +42,8 @@ export function registerFindingTools(server: McpServer, client: CheckmarxClient)
     async ({ scanId }) => {
       try {
         const summary = await client.getFindingSummary(scanId);
-        return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
+        const shaped = shapeSummary(summary);
+        return { content: [{ type: "text", text: JSON.stringify(shaped, null, 2) }] };
       } catch (error) {
         return {
           content: [
@@ -56,7 +60,8 @@ export function registerFindingTools(server: McpServer, client: CheckmarxClient)
     "List security findings from a scan with filtering by severity, type, and state. " +
       "SAST findings include file location and data flow length. " +
       "SCA findings include package, CVE, and remediation data. " +
-      "KICS (IaC) findings include platform, file, and expected/actual values.",
+      "KICS (IaC) findings include platform, file, and expected/actual values. " +
+      "Containers findings include image, package, CVE, and recommended image data.",
     {
       scanId: z.string().uuid().describe("The scan UUID"),
       severity: z.array(SeverityEnum).optional().describe("Filter by severity levels"),
@@ -138,6 +143,34 @@ export function registerFindingTools(server: McpServer, client: CheckmarxClient)
   );
 }
 
+function shapeSummary(summary: FindingSummary): Record<string, unknown> {
+  const engineCounters = new Map<ScanType, EngineCounters>();
+  for (const counter of summary.counters ?? []) {
+    const existing = engineCounters.get(counter.type) ?? {
+      totalCounter: 0,
+      severityCounters: [],
+    };
+    existing.totalCounter += counter.counter;
+    existing.severityCounters.push({ severity: counter.severity, counter: counter.counter });
+    engineCounters.set(counter.type, existing);
+  }
+
+  const perEngine: Record<string, EngineCounters> = {};
+  for (const [type, counters] of engineCounters) {
+    perEngine[type] = counters;
+  }
+
+  return {
+    scanId: summary.scanId,
+    totalCounter: summary.totalCounter,
+    perEngine,
+    containersCounters: summary.containersCounters ?? perEngine.containers,
+    scaContainersCounters: summary.scaContainersCounters,
+    counters: summary.counters,
+    statusCounters: summary.statusCounters,
+  };
+}
+
 function shapeFinding(finding: Finding): Record<string, unknown> {
   const base: Record<string, unknown> = {
     id: finding.id,
@@ -172,6 +205,24 @@ function shapeFinding(finding: Finding): Record<string, unknown> {
     base.packageIdentifier = data.packageIdentifier;
     base.recommendation = data.recommendation;
     base.recommendedVersion = data.recommendedVersion;
+    if (finding.vulnerabilityDetails) {
+      base.cveId = finding.vulnerabilityDetails.cveId;
+      base.cvssScore = finding.vulnerabilityDetails.cvssScore;
+      base.cweId = finding.vulnerabilityDetails.cweId;
+    }
+  } else if (finding.type === "containers") {
+    const data = finding.data as ContainersFindingData;
+    base.packageIdentifier = data.packageIdentifier;
+    base.packageName = data.packageName;
+    base.packageVersion = data.packageVersion;
+    base.imageName = data.imageName;
+    base.imageTag = data.imageTag;
+    base.imageDigest = data.imageDigest;
+    base.baseImage = data.baseImage;
+    base.layerId = data.layerId;
+    base.recommendation = data.recommendation;
+    base.recommendedVersion = data.recommendedVersion;
+    base.recommendedImage = data.recommendedImage;
     if (finding.vulnerabilityDetails) {
       base.cveId = finding.vulnerabilityDetails.cveId;
       base.cvssScore = finding.vulnerabilityDetails.cvssScore;

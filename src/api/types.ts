@@ -11,7 +11,7 @@ export type FindingStatus = "NEW" | "RECURRENT" | "FIXED";
 
 export type ScanStatus = "Queued" | "Running" | "Completed" | "Failed" | "Partial" | "Canceled";
 
-export type ScanType = "sast" | "sca" | "kics" | "apisec" | "secrets";
+export type ScanType = "sast" | "sca" | "kics" | "apisec" | "secrets" | "containers";
 
 export interface Project {
   id: string;
@@ -54,6 +54,7 @@ export interface FindingDataMap {
   kics: KicsFindingData;
   apisec: Record<string, unknown>;
   secrets: Record<string, unknown>;
+  containers: ContainersFindingData;
 }
 
 export interface Finding<T extends ScanType = ScanType> {
@@ -111,6 +112,20 @@ export interface ScaPackageData {
   url: string;
 }
 
+export interface ContainersFindingData {
+  packageIdentifier: string;
+  packageName?: string;
+  packageVersion?: string;
+  imageName?: string;
+  imageTag?: string;
+  imageDigest?: string;
+  baseImage?: string;
+  layerId?: string;
+  recommendedVersion?: string;
+  recommendedImage?: string;
+  recommendation?: string;
+}
+
 export interface KicsFindingData {
   queryId: string;
   queryName: string;
@@ -154,6 +169,13 @@ export interface FindingSummary {
   totalCounter: number;
   counters: SummaryCounter[];
   statusCounters: StatusCounter[];
+  containersCounters?: EngineCounters;
+  scaContainersCounters?: EngineCounters;
+}
+
+export interface EngineCounters {
+  totalCounter: number;
+  severityCounters: Array<{ severity: Severity; counter: number }>;
 }
 
 export interface SummaryCounter {
@@ -207,7 +229,7 @@ export interface CreateScanUploadHandler {
 
 export interface ScanConfig {
   type: ScanType;
-  value: Record<string, string>;
+  value: Record<string, unknown>;
 }
 
 export interface ListProjectsParams {

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { zipDirectory } from "../../src/utils/zip.js";
+import { synthesizeDockerfileZip, zipDirectory } from "../../src/utils/zip.js";
 
 let testDir: string;
 
@@ -66,5 +66,36 @@ describe("zipDirectory", () => {
   it("resolves relative paths", async () => {
     const buffer = await zipDirectory(testDir);
     expect(buffer.length).toBeGreaterThan(0);
+  });
+});
+
+describe("synthesizeDockerfileZip", () => {
+  it("produces a valid zip buffer with a Dockerfile entry", async () => {
+    const buffer = await synthesizeDockerfileZip("nginx:1.27-alpine-slim");
+
+    expect(buffer).toBeInstanceOf(Buffer);
+    expect(buffer.length).toBeGreaterThan(0);
+    expect(buffer[0]).toBe(0x50);
+    expect(buffer[1]).toBe(0x4b);
+
+    const binary = buffer.toString("binary");
+    expect(binary).toContain("Dockerfile");
+    expect(binary).toContain("FROM nginx:1.27-alpine-slim\n");
+  });
+
+  it("supports digest-pinned image references", async () => {
+    const image = `ghcr.io/org/app@sha256:${"a".repeat(64)}`;
+    const buffer = await synthesizeDockerfileZip(image);
+    expect(buffer.toString("binary")).toContain(`FROM ${image}\n`);
+  });
+
+  it("throws on empty image reference", async () => {
+    await expect(synthesizeDockerfileZip("")).rejects.toThrow("cannot be empty");
+    await expect(synthesizeDockerfileZip("   ")).rejects.toThrow("cannot be empty");
+  });
+
+  it("trims whitespace around the image reference", async () => {
+    const buffer = await synthesizeDockerfileZip("  nginx:latest  ");
+    expect(buffer.toString("binary")).toContain("FROM nginx:latest\n");
   });
 });
