@@ -2,6 +2,29 @@ import { z } from "zod";
 
 const TransportSchema = z.enum(["stdio", "http"]).default("stdio");
 
+const ScaResolverSchema = z
+  .object({
+    mode: z
+      .enum(["docker", "native"], {
+        errorMap: () => ({ message: "CHECKMARX_SCA_RESOLVER must be 'docker' or 'native'" }),
+      })
+      .optional(),
+    path: z.string().trim().min(1).optional(),
+    version: z.string().trim().min(1).default("2.12.23"),
+    image: z.string().trim().min(1).default("node:24.16.0-bookworm"),
+    platform: z.string().trim().min(1).default("linux/amd64"),
+    timeoutMs: z.coerce.number().int().positive().default(600_000),
+    sha256: z
+      .string()
+      .trim()
+      .regex(/^[a-fA-F0-9]{64}$/, "CHECKMARX_SCA_RESOLVER_SHA256 must be a SHA-256 hex digest")
+      .optional(),
+  })
+  .refine((resolver) => resolver.mode !== "native" || resolver.path, {
+    message: "CHECKMARX_SCA_RESOLVER_PATH is required when CHECKMARX_SCA_RESOLVER=native",
+    path: ["path"],
+  });
+
 const ConfigSchema = z.object({
   checkmarx: z.object({
     apiKey: z.string().trim().min(1, "CHECKMARX_API_KEY is required"),
@@ -16,11 +39,13 @@ const ConfigSchema = z.object({
       .default("https://iam.checkmarx.net"),
     projectId: z.string().uuid().optional(),
   }),
+  scaResolver: ScaResolverSchema,
   transport: TransportSchema,
   port: z.coerce.number().int().min(1).max(65535).default(3000),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
+export type ScaResolverConfig = Config["scaResolver"];
 
 export function loadConfig(): Config {
   const raw = {
@@ -30,6 +55,15 @@ export function loadConfig(): Config {
       baseUrl: process.env.CHECKMARX_BASE_URL || undefined,
       iamUrl: process.env.CHECKMARX_IAM_URL || undefined,
       projectId: process.env.CHECKMARX_PROJECT_ID || undefined,
+    },
+    scaResolver: {
+      mode: process.env.CHECKMARX_SCA_RESOLVER || undefined,
+      path: process.env.CHECKMARX_SCA_RESOLVER_PATH || undefined,
+      version: process.env.CHECKMARX_SCA_RESOLVER_VERSION || undefined,
+      image: process.env.CHECKMARX_SCA_RESOLVER_IMAGE || undefined,
+      platform: process.env.CHECKMARX_SCA_RESOLVER_PLATFORM || undefined,
+      timeoutMs: process.env.CHECKMARX_SCA_RESOLVER_TIMEOUT_MS || undefined,
+      sha256: process.env.CHECKMARX_SCA_RESOLVER_SHA256 || undefined,
     },
     transport: process.env.TRANSPORT || undefined,
     port: process.env.PORT || undefined,

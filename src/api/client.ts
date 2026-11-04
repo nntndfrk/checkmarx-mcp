@@ -6,7 +6,6 @@ import type {
   CreateScanGitRequest,
   CreateScanUploadRequest,
   Finding,
-  FindingSummary,
   ListFindingsParams,
   ListProjectsParams,
   ListScansParams,
@@ -14,6 +13,9 @@ import type {
   Project,
   Scan,
   ScanConfig,
+  ScanSettings,
+  ScanSummary,
+  ScanSummaryResponse,
   ScanType,
   UploadUrlResponse,
 } from "./types.js";
@@ -28,6 +30,11 @@ interface RequestOptions {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const UPLOAD_TIMEOUT_MS = 120_000;
 const RETRY_DELAY_MS = 2_000;
+export const DEFAULT_SCAN_TYPES: readonly ScanType[] = ["sast", "sca", "kics"];
+/** Page size `cx` uses for `/api/results`. */
+const RESULTS_PAGE_SIZE = 10_000;
+const MAX_RESULTS_PAGES = 10;
+const RESULTS_TIMEOUT_MS = 120_000;
 
 export class CheckmarxClient {
   private readonly baseUrl: string;
@@ -209,31 +216,60 @@ export class CheckmarxClient {
     return this.request<Scan>(`/api/scans/${scanId}`);
   }
 
+  /**
+   * `/api/results` reads `offset` as a page index and ignores `type`, so all
+   * pages are fetched (as `cx` does) and type, offset and limit are applied here.
+   */
   async getFindings(params: ListFindingsParams): Promise<PaginatedResponse<Finding>> {
-    const searchParams = new URLSearchParams();
-    searchParams.set("scan-id", params.scanId);
-    if (params.severity?.length) searchParams.set("severity", params.severity.join(","));
-    if (params.type?.length) searchParams.set("type", params.type.join(","));
-    if (params.state?.length) searchParams.set("state", params.state.join(","));
-    searchParams.set("limit", String(params.limit ?? 20));
-    searchParams.set("offset", String(params.offset ?? 0));
-    searchParams.set("sort", "-severity");
-
-    const query = searchParams.toString();
-    const raw = await this.request<{
-      totalCount: number;
-      filteredTotalCount: number;
-      results: Finding[];
-    }>(`/api/results?${query}`);
+    const all = await this.getAllFindings(params);
+    const items = params.type?.length
+      ? all.filter((finding) => params.type?.includes(finding.type))
+      : all;
+    const offset = params.offset ?? 0;
+    const limit = params.limit ?? 20;
     return {
-      totalCount: raw.totalCount,
-      filteredTotalCount: raw.filteredTotalCount,
-      items: raw.results,
+      totalCount: items.length,
+      filteredTotalCount: items.length,
+      items: items.slice(offset, offset + limit),
     };
   }
 
-  async getFindingSummary(scanId: string): Promise<FindingSummary> {
-    return this.request<FindingSummary>(`/api/scan-summary?scan-ids=${scanId}`);
+  /** All findings that match the server-side filters (severity, state, dev/test). */
+  async getAllFindings(params: ListFindingsParams): Promise<Finding[]> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("scan-id", params.scanId);
+    if (params.severity?.length) searchParams.set("severity", params.severity.join(","));
+    if (params.state?.length) searchParams.set("state", params.state.join(","));
+    if (params.hideDevAndTestDependencies) {
+      // Same filter as `cx results show --sca-hide-dev-test-dependencies`.
+      searchParams.set("exclude-result-types", "DEV_AND_TEST");
+    }
+    searchParams.set("limit", String(RESULTS_PAGE_SIZE));
+    searchParams.set("sort", "-severity");
+
+    const findings: Finding[] = [];
+    for (let page = 0; page < MAX_RESULTS_PAGES; page++) {
+      searchParams.set("offset", String(page));
+      const raw = await this.request<{ totalCount: number; results: Finding[] | null }>(
+        `/api/results?${searchParams.toString()}`,
+        { timeoutMs: RESULTS_TIMEOUT_MS },
+      );
+      const results = raw.results ?? [];
+      findings.push(...results);
+      if (results.length < RESULTS_PAGE_SIZE || findings.length >= raw.totalCount) break;
+    }
+    return findings;
+  }
+
+  async getFindingSummary(scanId: string): Promise<ScanSummary> {
+    const raw = await this.request<ScanSummaryResponse>(
+      `/api/scan-summary?scan-ids=${encodeURIComponent(scanId)}`,
+    );
+    const summary = raw.scansSummaries?.[0];
+    if (!summary) {
+      throw new Error(`No summary found for scan ${scanId}`);
+    }
+    return summary;
   }
 
   async createUploadUrl(): Promise<UploadUrlResponse> {
@@ -298,13 +334,14 @@ export class CheckmarxClient {
     zipBuffer: Buffer;
     branch?: string;
     scanTypes?: ScanType[];
+    settings?: ScanSettings;
   }): Promise<Scan> {
     const projectId = this.resolveProjectId(params.projectId);
 
     const { url } = await this.createUploadUrl();
     await this.uploadZip(url, params.zipBuffer);
 
-    const config = this.buildScanConfig(params.scanTypes);
+    const config = this.buildScanConfig(params.scanTypes, params.settings);
 
     const request: CreateScanUploadRequest = {
       type: "upload",
@@ -331,16 +368,26 @@ export class CheckmarxClient {
     });
   }
 
-  private buildScanConfig(scanTypes?: ScanType[]): ScanConfig[] {
-    const types = scanTypes ?? (["sast", "sca", "kics"] satisfies ScanType[]);
-    const requested = new Set<ScanType>(types);
-    const pairsWithContainers = requested.has("containers") && requested.has("sca");
+  /**
+   * Builds the per-engine config the same way `cx scan create` does: only the
+   * settings that were given are sent. `cx` drops `enableContainersScan: false`
+   * from the SCA value, so nothing extra is sent when containers is requested.
+   */
+  private buildScanConfig(scanTypes?: ScanType[], settings: ScanSettings = {}): ScanConfig[] {
+    const types = scanTypes ?? DEFAULT_SCAN_TYPES;
 
     return types.map((type) => {
-      if (type === "sca" && pairsWithContainers) {
-        return { type: "sca", value: { enableContainersScan: "false" } };
+      const value: Record<string, string> = {};
+      if (type === "sast") {
+        if (settings.sastFilter) value.filter = settings.sastFilter;
+        if (settings.presetName) value.presetName = settings.presetName;
+        if (settings.incremental !== undefined) value.incremental = String(settings.incremental);
+      } else if (type === "sca") {
+        if (settings.scaFilter) value.filter = settings.scaFilter;
+      } else if (type === "kics") {
+        if (settings.kicsFilter) value.filter = settings.kicsFilter;
       }
-      return { type, value: {} };
+      return { type, value };
     });
   }
 }

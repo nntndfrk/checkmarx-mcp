@@ -15,10 +15,10 @@ MCP server providing AI coding agents with full programmatic access to the **Che
 | `list_scans` | List scans filtered by project, status |
 | `get_scan` | Get scan details (use to poll status) |
 | `trigger_scan_git` | Start a scan from a Git repository URL |
-| `trigger_scan_local` | Zip and upload a local directory for scanning |
+| `trigger_scan_local` | Zip and upload a local directory for scanning. Zips the same files as `cx scan create` by default; accepts `sastFilter`, `scaFilter`, `kicsFilter`, `presetName`, `incremental`. With SCA Resolver configured, resolves dependencies locally (`scaResolution`, `scaResolverParams`) |
 | `trigger_scan_image` | Scan an arbitrary public container image by reference (Container Security) |
-| `findings_summary` | Severity breakdown reshaped into `perEngine` + top-level `containersCounters` / `scaContainersCounters` |
-| `list_findings` | List findings with severity/type/state filters. Supports `type: ["containers"]`; containers findings include `imageName`, `imageTag`, `baseImage`, `packageName/Version`, `recommendedImage`, and CVE/CVSS |
+| `findings_summary` | Per-engine severity, status and state counters (`perEngine`), `scaPackages`, and `containersCounters` / `scaContainersCounters`. `hideDevAndTestDependencies` recounts SCA without dev and test dependencies |
+| `list_findings` | List findings with severity/type/state filters and `hideDevAndTestDependencies`. Supports `type: ["containers"]`; containers findings include `imageName`, `imageTag`, `baseImage`, `packageName/Version`, `recommendedImage`, and CVE/CVSS |
 | `get_finding_details` | Full finding data flow (SAST) or CVE chain (SCA / Containers) |
 
 All scan-trigger tools accept a `scanTypes` array. Valid values:
@@ -50,6 +50,13 @@ cp .env.example .env
 | `TRANSPORT` | No | `stdio` | `stdio` for CLI clients or `http` for remote |
 | `PORT` | No | `3000` | Port for HTTP transport |
 | `LOG_LEVEL` | No | `info` | Logging verbosity (`debug`, `info`, `error`) |
+| `CHECKMARX_SCA_RESOLVER` | No | off | `docker` or `native`: resolve SCA dependencies locally in `trigger_scan_local` (see [Matching a `cx` pipeline scan](#matching-a-cx-pipeline-scan)) |
+| `CHECKMARX_SCA_RESOLVER_PATH` | For `native` | — | Path to the `ScaResolver` binary |
+| `CHECKMARX_SCA_RESOLVER_VERSION` | No | `2.12.23` | SCA Resolver version that `docker` mode downloads |
+| `CHECKMARX_SCA_RESOLVER_IMAGE` | No | `node:24.16.0-bookworm` | Image `docker` mode runs the resolver in. It needs the package managers your projects use (`npm` for npm projects) |
+| `CHECKMARX_SCA_RESOLVER_PLATFORM` | No | `linux/amd64` | Docker platform. The resolver is built for x86_64 only |
+| `CHECKMARX_SCA_RESOLVER_TIMEOUT_MS` | No | `600000` | Resolver timeout |
+| `CHECKMARX_SCA_RESOLVER_SHA256` | No | published checksum | Expected SHA-256 of the downloaded tarball |
 
 ### Claude Code (npx)
 
@@ -211,9 +218,9 @@ trigger_scan_local({
 })
 ```
 
-When `sca` and `containers` are requested together, the MCP automatically emits
-`enableContainersScan: "false"` on the SCA engine (per Checkmarx docs) so the
-two engines don't double-report base-image packages.
+Container results can differ from a `cx` pipeline scan. `cx` analyses the
+built image locally and uploads the result, while the MCP only scans the base
+images named in each `FROM` line.
 
 ### Image-only (no Dockerfile required)
 
@@ -229,6 +236,84 @@ trigger_scan_image({ image: "nginx@sha256:<digest>" })
 
 For **private registries**, configure a Private Registry Integration in
 Checkmarx One first. Local `docker pull` is not used by the MCP.
+
+## Matching a `cx` pipeline scan
+
+To check a fix before you push, a local scan should store the same findings as
+the pipeline scan that runs `cx scan create`. The Checkmarx UI and the scan
+counters show what a scan stores, so the scan itself has to match, not only
+what you read back.
+
+### SCA: resolve dependencies locally
+
+A pipeline that runs `cx scan create --sca-resolver` resolves dependencies with
+Checkmarx SCA Resolver on the build agent and uploads the result. Without it,
+Checkmarx resolves the uploaded lock files in the cloud, dev dependencies
+included, so the stored SCA results differ (for example 1148 packages instead
+of 47).
+
+Set `CHECKMARX_SCA_RESOLVER` and `trigger_scan_local` runs SCA Resolver the
+same way:
+
+1. It copies the directory to a temp folder, skipping excluded folders.
+2. It runs `ScaResolver offline -s <copy> -n <project name> -r <out>.json <scaResolverParams>`.
+3. It zips the directory as usual and adds the resolver output as
+   `.cxsca-results.json` at the zip root.
+
+If the resolver fails or times out, the tool returns the error and the last 50
+lines of resolver output, and no scan is created. It never falls back to cloud
+resolution.
+
+**Docker mode** (`CHECKMARX_SCA_RESOLVER=docker`) needs Docker running. It
+downloads the linux64 build of SCA Resolver once to
+`~/.cache/checkmarx-mcp/sca-resolver/<version>/`, checks it against the
+published SHA-256, and runs it in `CHECKMARX_SCA_RESOLVER_IMAGE`. Use this on
+macOS: the macOS build of SCA Resolver is x86_64 only. The image must contain
+the package managers your projects use. The default Node image covers npm,
+which is all SCA Resolver needs for `package-lock.json` (no `node_modules`).
+
+**Native mode** (`CHECKMARX_SCA_RESOLVER=native`) runs the binary at
+`CHECKMARX_SCA_RESOLVER_PATH` with the package managers on your `PATH`.
+
+Pass the pipeline's `--sca-resolver-params` string unchanged as
+`scaResolverParams`:
+
+```text
+trigger_scan_local({
+  directory: "/path/to/app",
+  branch: "feature/login-mcp",
+  scanTypes: ["sast", "sca", "kics"],
+  sastFilter: "!**\\node_modules,!**\\.git,!**\\dist",
+  scaResolverParams: "--extract-archives zip,ear,war --extract-depth 1 --ignore-dev-dependencies --maven-parameters='-Dscope=runtime'"
+})
+```
+
+The result reports `scaResolution`, the resolver version and the number of
+resolved packages. Pass `scaResolution: "cloud"` to skip the resolver for one
+scan.
+
+`hideDevAndTestDependencies` on `list_findings` and `findings_summary` is
+still useful for scans resolved in the cloud, but it only filters what you
+read. The stored scan keeps the dev dependencies.
+
+### Files and settings
+
+- `trigger_scan_local` zips the same file types as the `cx` CLI (2.3.27) and
+  skips only `node_modules`, `.git`, `.vs`, `.vscode` and `.idea`. Use
+  `zipMode: "all"` to upload every file type instead.
+- Local build output and caches, such as `dist/` or `.angular/`, are uploaded
+  too, as `cx` would. If the pipeline scans a clean checkout, add them to
+  `excludePatterns`, or set a matching `sastFilter`.
+- Pass the same `sastFilter`, `scaFilter`, `kicsFilter`, `presetName` and
+  `incremental` values the pipeline passes to `cx`.
+- Use a separate branch label for manual scans, for example `<branch>-mcp`, so
+  they don't mix into the real branch history.
+
+### Container Security
+
+Results differ from a pipeline that passes `--container-images` to `cx`: `cx`
+analyses the built image locally and uploads the result, while the MCP only
+scans the base images named in each Dockerfile `FROM` line.
 
 ## Troubleshooting
 

@@ -1,10 +1,18 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { CheckmarxClient } from "../../src/api/client.js";
 import { registerScanTools } from "../../src/tools/scans.js";
+import {
+  type ResolveOptions,
+  type ScaResolution,
+  type ScaResolver,
+  ScaResolverError,
+} from "../../src/utils/sca-resolver.js";
+import { zipEntries } from "../helpers/zip-entries.js";
 
 let testDir: string;
 
@@ -12,6 +20,11 @@ beforeAll(async () => {
   testDir = await mkdtemp(join(tmpdir(), "scan-tool-test-"));
   await mkdir(join(testDir, "src"));
   await writeFile(join(testDir, "src", "app.ts"), "export const x = 1;");
+  await writeFile(join(testDir, "package.json"), "{}");
+  await writeFile(join(testDir, "package-lock.json"), "{}");
+  await writeFile(join(testDir, "README.md"), "# app");
+  await mkdir(join(testDir, "node_modules", "dep"), { recursive: true });
+  await writeFile(join(testDir, "node_modules", "dep", "package.json"), "{}");
 });
 
 afterAll(async () => {
@@ -218,6 +231,34 @@ describe("Scan Tools", () => {
       expect(result.content[0]?.text).toContain("Upload quota exceeded");
     });
 
+    it("passes scan settings to the client", async () => {
+      let captured: Record<string, unknown> = {};
+      const client = createMockClient({
+        createScanFromUpload: async (params: Record<string, unknown>) => {
+          captured = params;
+          return { ...mockScan, id: "scan-upload", status: "Queued" as const };
+        },
+      } as Partial<CheckmarxClient>);
+      registerScanTools(server, client);
+
+      await callTool(server, "trigger_scan_local", {
+        projectId: "550e8400-e29b-41d4-a716-446655440000",
+        directory: testDir,
+        zipMode: "all",
+        sastFilter: "!*.spec.ts",
+        presetName: "ASA Premium",
+        incremental: true,
+      });
+
+      expect(captured.settings).toEqual({
+        sastFilter: "!*.spec.ts",
+        scaFilter: undefined,
+        kicsFilter: undefined,
+        presetName: "ASA Premium",
+        incremental: true,
+      });
+    });
+
     it("accepts excludePatterns without error", async () => {
       const client = createMockClient();
       registerScanTools(server, client);
@@ -277,5 +318,192 @@ describe("Scan Tools", () => {
       expect(result.isError).toBe(true);
       expect(result.content[0]?.text).toContain("Upload failed");
     });
+  });
+
+  describe("trigger_scan_local SCA resolution", () => {
+    const projectId = "550e8400-e29b-41d4-a716-446655440000";
+
+    interface Captured {
+      upload?: { zipBuffer: Buffer };
+      resolve?: ResolveOptions;
+      stagedFiles?: string[];
+    }
+
+    function setup(
+      captured: Captured,
+      resolve: (options: ResolveOptions) => Promise<ScaResolution> = async (options) => {
+        const outputPath = join(options.outDir, "sca.json");
+        await mkdir(options.outDir, { recursive: true });
+        await writeFile(outputPath, "{}");
+        return { outputPath, version: "2.12.23", packageCount: 47 };
+      },
+      enabled = true,
+    ) {
+      const client = createMockClient({
+        getProject: async (id: string) => ({ ...mockScan, id, name: "my-app" }),
+        createScanFromUpload: async (params: { zipBuffer: Buffer }) => {
+          captured.upload = params;
+          return { ...mockScan, id: "scan-upload", status: "Queued" as const };
+        },
+      } as unknown as Partial<CheckmarxClient>);
+      const resolver = {
+        enabled,
+        resolve: async (options: ResolveOptions) => {
+          captured.resolve = options;
+          captured.stagedFiles = await listFiles(options.sourceDir);
+          return resolve(options);
+        },
+      } as unknown as ScaResolver;
+      registerScanTools(server, client, resolver);
+    }
+
+    async function listFiles(dir: string, prefix = ""): Promise<string[]> {
+      const files: string[] = [];
+      for (const entry of await readdir(dir, { withFileTypes: true })) {
+        const path = `${prefix}${entry.name}`;
+        if (entry.isDirectory())
+          files.push(...(await listFiles(join(dir, entry.name), `${path}/`)));
+        else files.push(path);
+      }
+      return files.sort();
+    }
+
+    it("resolves locally by default and adds .cxsca-results.json at the zip root", async () => {
+      const captured: Captured = {};
+      setup(captured);
+
+      const result = await callTool(server, "trigger_scan_local", {
+        projectId,
+        directory: testDir,
+        scaResolverParams: "--ignore-dev-dependencies --maven-parameters='-Dscope=runtime'",
+      });
+      const parsed = JSON.parse(result.content[0]?.text ?? "");
+
+      expect(result.isError).toBeUndefined();
+      expect(parsed.scaResolution).toBe("local");
+      expect(parsed.scaResolver).toEqual({ version: "2.12.23", packageCount: 47 });
+      expect(captured.resolve?.projectName).toBe("my-app");
+      expect(captured.resolve?.params).toEqual([
+        "--ignore-dev-dependencies",
+        "--maven-parameters=-Dscope=runtime",
+      ]);
+      // The resolver sees the whole tree minus excluded folders, not the cx include list.
+      expect(captured.stagedFiles).toEqual([
+        "README.md",
+        "package-lock.json",
+        "package.json",
+        "src/app.ts",
+      ]);
+
+      const entries = zipEntries(captured.upload?.zipBuffer ?? Buffer.alloc(0));
+      expect(entries).toEqual([
+        ".cxsca-results.json",
+        "package-lock.json",
+        "package.json",
+        "src/app.ts",
+      ]);
+      expect(existsSync(dirname(captured.resolve?.sourceDir ?? ""))).toBe(false);
+    });
+
+    it("uploads no resolver output for cloud resolution", async () => {
+      const captured: Captured = {};
+      setup(captured);
+
+      const result = await callTool(server, "trigger_scan_local", {
+        projectId,
+        directory: testDir,
+        scaResolution: "cloud",
+      });
+      const parsed = JSON.parse(result.content[0]?.text ?? "");
+
+      expect(parsed.scaResolution).toBe("cloud");
+      expect(parsed.scaResolver).toBeUndefined();
+      expect(captured.resolve).toBeUndefined();
+      expect(zipEntries(captured.upload?.zipBuffer ?? Buffer.alloc(0))).not.toContain(
+        ".cxsca-results.json",
+      );
+    });
+
+    it("defaults to cloud when sca is not requested", async () => {
+      const captured: Captured = {};
+      setup(captured);
+
+      const result = await callTool(server, "trigger_scan_local", {
+        projectId,
+        directory: testDir,
+        scanTypes: ["sast"],
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(captured.resolve).toBeUndefined();
+    });
+
+    it("defaults to cloud when SCA Resolver is not configured", async () => {
+      const captured: Captured = {};
+      setup(captured, undefined, false);
+
+      const result = await callTool(server, "trigger_scan_local", {
+        projectId,
+        directory: testDir,
+      });
+      const parsed = JSON.parse(result.content[0]?.text ?? "");
+
+      expect(parsed.scaResolution).toBe("cloud");
+      expect(captured.resolve).toBeUndefined();
+    });
+
+    it("rejects local resolution without SCA Resolver", async () => {
+      const captured: Captured = {};
+      setup(captured, undefined, false);
+
+      const result = await callTool(server, "trigger_scan_local", {
+        projectId,
+        directory: testDir,
+        scaResolution: "local",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toContain("CHECKMARX_SCA_RESOLVER");
+      expect(captured.upload).toBeUndefined();
+    });
+
+    it("rejects scaResolverParams for cloud resolution", async () => {
+      const captured: Captured = {};
+      setup(captured);
+
+      const result = await callTool(server, "trigger_scan_local", {
+        projectId,
+        directory: testDir,
+        scaResolution: "cloud",
+        scaResolverParams: "--ignore-dev-dependencies",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(captured.upload).toBeUndefined();
+    });
+
+    for (const [name, error] of [
+      ["a non-zero exit", "SCA Resolver failed with exit code 9 (package manager error)"],
+      ["a timeout", "SCA Resolver timed out after 600000 ms"],
+      ["missing output", "SCA Resolver finished without writing sca.json"],
+    ] as const) {
+      it(`creates no scan and removes temp dirs on ${name}`, async () => {
+        const captured: Captured = {};
+        setup(captured, async () => {
+          throw new ScaResolverError(error, "last log line");
+        });
+
+        const result = await callTool(server, "trigger_scan_local", {
+          projectId,
+          directory: testDir,
+        });
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain(error);
+        expect(result.content[0]?.text).toContain("last log line");
+        expect(captured.upload).toBeUndefined();
+        expect(existsSync(dirname(captured.resolve?.sourceDir ?? ""))).toBe(false);
+      });
+    }
   });
 });

@@ -8,6 +8,7 @@ import { createLogger } from "./logger.js";
 import { registerAllTools } from "./tools/index.js";
 import { startHttpTransport } from "./transport/http.js";
 import { startStdioTransport } from "./transport/stdio.js";
+import { ScaResolver } from "./utils/sca-resolver.js";
 import { getPackageVersion } from "./version.js";
 
 const SERVER_VERSION = getPackageVersion();
@@ -19,6 +20,7 @@ async function main(): Promise<void> {
   logger.debug("Debug logging enabled");
   const auth = new CheckmarxAuth(config, logger);
   const client = new CheckmarxClient(config, auth, logger);
+  const scaResolver = new ScaResolver(config.scaResolver, logger);
 
   let httpServer: HttpServer | undefined;
 
@@ -28,7 +30,7 @@ async function main(): Promise<void> {
         { name: SERVER_NAME, version: SERVER_VERSION },
         { capabilities: { tools: {} } },
       );
-      registerAllTools(server, client);
+      registerAllTools(server, client, scaResolver);
       return server;
     };
     httpServer = await startHttpTransport(createServer, config.port);
@@ -37,7 +39,7 @@ async function main(): Promise<void> {
       { name: SERVER_NAME, version: SERVER_VERSION },
       { capabilities: { tools: {} } },
     );
-    registerAllTools(server, client);
+    registerAllTools(server, client, scaResolver);
     await startStdioTransport(server);
   }
 

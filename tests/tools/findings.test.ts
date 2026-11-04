@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CheckmarxClient } from "../../src/api/client.js";
@@ -5,8 +6,11 @@ import type {
   ContainersFindingData,
   Finding,
   KicsFindingData,
+  ListFindingsParams,
   SastFindingData,
   ScaFindingData,
+  ScanSummary,
+  ScanSummaryResponse,
 } from "../../src/api/types.js";
 import { registerFindingTools } from "../../src/tools/findings.js";
 
@@ -142,23 +146,29 @@ const mockContainersFinding: Finding<"containers"> = {
   },
 };
 
+/** `GET /api/scan-summary` of a real pipeline scan: 9 SAST, 4 SCA, 47 SCA packages. */
+const realSummary = (
+  JSON.parse(
+    readFileSync(new URL("../fixtures/scan-summary.json", import.meta.url), "utf8"),
+  ) as ScanSummaryResponse
+).scansSummaries[0] as ScanSummary;
+
+const allMockFindings = [
+  mockSastFinding,
+  mockScaFinding,
+  mockKicsFinding,
+  mockContainersFinding,
+] as Finding[];
+
 function createMockClient(overrides: Partial<CheckmarxClient> = {}): CheckmarxClient {
   return {
     getFindings: async () => ({
       totalCount: 4,
       filteredTotalCount: 4,
-      items: [mockSastFinding, mockScaFinding, mockKicsFinding, mockContainersFinding] as Finding[],
+      items: allMockFindings,
     }),
-    getFindingSummary: async () => ({
-      scanId: "scan-1",
-      totalCounter: 10,
-      counters: [
-        { type: "sast" as const, severity: "HIGH" as const, counter: 5 },
-        { type: "sca" as const, severity: "CRITICAL" as const, counter: 2 },
-        { type: "kics" as const, severity: "MEDIUM" as const, counter: 3 },
-      ],
-      statusCounters: [{ status: "NEW", counter: 10 }],
-    }),
+    getAllFindings: async () => allMockFindings,
+    getFindingSummary: async () => realSummary,
     ...overrides,
   } as unknown as CheckmarxClient;
 }
@@ -186,7 +196,7 @@ describe("Finding Tools", () => {
   });
 
   describe("findings_summary", () => {
-    it("returns severity breakdown", async () => {
+    it("maps the scansSummaries counters of a real scan", async () => {
       const client = createMockClient();
       registerFindingTools(server, client);
 
@@ -195,8 +205,48 @@ describe("Finding Tools", () => {
       });
       const parsed = JSON.parse(result.content[0]?.text);
 
-      expect(parsed.totalCounter).toBe(10);
-      expect(parsed.counters).toHaveLength(3);
+      expect(parsed.scanId).toBe("18f71fb2-db00-478a-889e-21a5cc4c724d");
+      expect(parsed.totalCounter).toBe(13);
+      expect(parsed.scaPackages).toBe(47);
+      expect(parsed.perEngine.sast).toEqual({
+        totalCounter: 9,
+        severityCounters: [
+          { severity: "MEDIUM", counter: 1 },
+          { severity: "LOW", counter: 8 },
+        ],
+        statusCounters: [{ status: "RECURRENT", counter: 9 }],
+        stateCounters: [{ state: "TO_VERIFY", counter: 9 }],
+      });
+      expect(parsed.perEngine.sca.severityCounters).toEqual([{ severity: "HIGH", counter: 4 }]);
+      expect(parsed.perEngine.kics.totalCounter).toBe(0);
+      expect(parsed.perEngine.apisec.totalCounter).toBe(0);
+      expect(parsed.containersCounters.totalCounter).toBe(0);
+      expect(parsed.scaContainersCounters).toEqual({
+        totalPackages: 0,
+        totalVulnerabilities: 0,
+        severityCounters: [],
+      });
+      expect(parsed.note).toBeUndefined();
+    });
+
+    it("leaves out engines the summary has no counters for", async () => {
+      const client = createMockClient({
+        getFindingSummary: async () => ({
+          scanId: "scan-1",
+          containersCounters: { severityCounters: [{ severity: "HIGH", counter: 5 }] },
+        }),
+      });
+      registerFindingTools(server, client);
+
+      const result = await callTool(server, "findings_summary", {
+        scanId: "550e8400-e29b-41d4-a716-446655440000",
+      });
+      const parsed = JSON.parse(result.content[0]?.text);
+
+      expect(Object.keys(parsed.perEngine)).toEqual(["containers"]);
+      expect(parsed.totalCounter).toBe(5);
+      expect(parsed.containersCounters.totalCounter).toBe(5);
+      expect(parsed.scaPackages).toBeUndefined();
     });
 
     it("returns error on failure", async () => {
@@ -215,60 +265,75 @@ describe("Finding Tools", () => {
       expect(result.content[0]?.text).toContain("Scan not found");
     });
 
-    it("surfaces per-engine counters including containersCounters", async () => {
+    it("recounts only SCA findings when hiding dev and test deps", async () => {
+      const calls: ListFindingsParams[] = [];
       const client = createMockClient({
-        getFindingSummary: async () => ({
-          scanId: "scan-1",
-          totalCounter: 15,
-          counters: [
-            { type: "sast" as const, severity: "HIGH" as const, counter: 5 },
-            { type: "containers" as const, severity: "HIGH" as const, counter: 5 },
-            { type: "containers" as const, severity: "CRITICAL" as const, counter: 2 },
-            { type: "kics" as const, severity: "MEDIUM" as const, counter: 3 },
-          ],
-          statusCounters: [{ status: "NEW", counter: 15 }],
-        }),
+        // The results API returns every engine; only the SCA finding may be counted.
+        getAllFindings: async (params: ListFindingsParams) => {
+          calls.push(params);
+          return allMockFindings;
+        },
       });
       registerFindingTools(server, client);
 
       const result = await callTool(server, "findings_summary", {
         scanId: "550e8400-e29b-41d4-a716-446655440000",
+        hideDevAndTestDependencies: true,
       });
       const parsed = JSON.parse(result.content[0]?.text);
 
-      expect(parsed.totalCounter).toBe(15);
-      expect(parsed.perEngine.containers.totalCounter).toBe(7);
-      expect(parsed.perEngine.containers.severityCounters).toHaveLength(2);
-      expect(parsed.containersCounters.totalCounter).toBe(7);
-      expect(parsed.perEngine.sast.totalCounter).toBe(5);
+      expect(calls).toEqual([
+        { scanId: "550e8400-e29b-41d4-a716-446655440000", hideDevAndTestDependencies: true },
+      ]);
+      expect(parsed.perEngine.sca).toEqual({
+        totalCounter: 1,
+        severityCounters: [{ severity: "CRITICAL", counter: 1 }],
+        statusCounters: [{ status: "NEW", counter: 1 }],
+        stateCounters: [{ state: "TO_VERIFY", counter: 1 }],
+      });
+      expect(parsed.perEngine.sast.totalCounter).toBe(9);
+      expect(parsed.totalCounter).toBe(10);
+      expect(parsed.note).toContain("dev and test");
     });
 
-    it("prefers raw containersCounters when API provides it", async () => {
+    it("does not query results when dev and test deps are not hidden", async () => {
+      let called = false;
       const client = createMockClient({
-        getFindingSummary: async () => ({
-          scanId: "scan-1",
-          totalCounter: 5,
-          counters: [],
-          statusCounters: [],
-          containersCounters: {
-            totalCounter: 5,
-            severityCounters: [{ severity: "HIGH" as const, counter: 5 }],
-          },
-        }),
+        getAllFindings: async () => {
+          called = true;
+          return [];
+        },
       });
       registerFindingTools(server, client);
 
-      const result = await callTool(server, "findings_summary", {
+      await callTool(server, "findings_summary", {
         scanId: "550e8400-e29b-41d4-a716-446655440000",
       });
-      const parsed = JSON.parse(result.content[0]?.text);
 
-      expect(parsed.containersCounters.totalCounter).toBe(5);
-      expect(parsed.containersCounters.severityCounters[0].severity).toBe("HIGH");
+      expect(called).toBe(false);
     });
   });
 
   describe("list_findings", () => {
+    it("passes hideDevAndTestDependencies to the client", async () => {
+      let captured: ListFindingsParams | undefined;
+      const client = createMockClient({
+        getFindings: async (params: ListFindingsParams) => {
+          captured = params;
+          return { totalCount: 0, filteredTotalCount: 0, items: [] };
+        },
+      });
+      registerFindingTools(server, client);
+
+      await callTool(server, "list_findings", {
+        scanId: "550e8400-e29b-41d4-a716-446655440000",
+        type: ["sca"],
+        hideDevAndTestDependencies: true,
+      });
+
+      expect(captured?.hideDevAndTestDependencies).toBe(true);
+    });
+
     it("shapes SAST findings with file location", async () => {
       const client = createMockClient();
       registerFindingTools(server, client);

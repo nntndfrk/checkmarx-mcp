@@ -4,12 +4,13 @@ import type { CheckmarxClient } from "../api/client.js";
 import type {
   ContainersFindingData,
   EngineCounters,
+  EngineSummaryCounters,
   Finding,
   FindingState,
-  FindingSummary,
   KicsFindingData,
   SastFindingData,
   ScaFindingData,
+  ScanSummary,
   ScanType,
   Severity,
 } from "../api/types.js";
@@ -24,8 +25,22 @@ const FindingStateEnum = z.enum([
   "PROPOSED_NOT_EXPLOITABLE",
 ]);
 
-const MAX_FINDING_SEARCH_PAGES = 10;
-const FINDING_PAGE_SIZE = 200;
+/** `/api/scan-summary` counter blocks, keyed by the engine name used in `scanTypes`. */
+const SUMMARY_ENGINES = {
+  sast: "sastCounters",
+  sca: "scaCounters",
+  kics: "kicsCounters",
+  apisec: "apiSecCounters",
+  containers: "containersCounters",
+} as const satisfies Partial<Record<ScanType, keyof ScanSummary>>;
+
+const hideDevAndTestDependenciesParam = z
+  .boolean()
+  .default(false)
+  .describe(
+    "Hide SCA findings in dev and test dependencies, same as cx --sca-hide-dev-test-dependencies. " +
+      "Use this to compare with a cx pipeline scan.",
+  );
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -35,14 +50,28 @@ export function registerFindingTools(server: McpServer, client: CheckmarxClient)
   server.tool(
     "findings_summary",
     "Get a severity breakdown of findings for a completed scan, grouped by scanner type. " +
-      "Returns total count and per-engine severity counters.",
+      "Returns total count, per-engine severity/status/state counters, and the number of SCA packages.",
     {
       scanId: z.string().uuid().describe("The scan UUID"),
+      hideDevAndTestDependencies: hideDevAndTestDependenciesParam,
     },
-    async ({ scanId }) => {
+    async ({ scanId, hideDevAndTestDependencies }) => {
       try {
         const summary = await client.getFindingSummary(scanId);
-        const shaped = shapeSummary(summary);
+        const perEngine = summaryPerEngine(summary);
+        if (hideDevAndTestDependencies && perEngine.sca) {
+          // The summary API has no dev/test filter, so SCA is recounted from the results.
+          const findings = await client.getAllFindings({
+            scanId,
+            hideDevAndTestDependencies: true,
+          });
+          perEngine.sca = countFindings(findings.filter((f) => f.type === "sca"));
+        }
+        const shaped = shapeSummary(summary, perEngine);
+        if (hideDevAndTestDependencies) {
+          shaped.note =
+            "SCA counters exclude dev and test dependencies. scaPackages still includes them.";
+        }
         return { content: [{ type: "text", text: JSON.stringify(shaped, null, 2) }] };
       } catch (error) {
         return {
@@ -70,16 +99,18 @@ export function registerFindingTools(server: McpServer, client: CheckmarxClient)
         .optional()
         .describe("Filter by scanner type (sast, sca, kics, etc.)"),
       state: z.array(FindingStateEnum).optional().describe("Filter by finding state"),
+      hideDevAndTestDependencies: hideDevAndTestDependenciesParam,
       limit: z.number().int().min(1).max(200).default(20).describe("Max results to return"),
       offset: z.number().int().min(0).default(0).describe("Pagination offset"),
     },
-    async ({ scanId, severity, type, state, limit, offset }) => {
+    async ({ scanId, severity, type, state, hideDevAndTestDependencies, limit, offset }) => {
       try {
         const result = await client.getFindings({
           scanId,
           severity: severity as Severity[] | undefined,
           type: type as ScanType[] | undefined,
           state: state as FindingState[] | undefined,
+          hideDevAndTestDependencies,
           limit,
           offset,
         });
@@ -102,24 +133,17 @@ export function registerFindingTools(server: McpServer, client: CheckmarxClient)
   server.tool(
     "get_finding_details",
     "Get full details for a specific finding, including data flow (SAST) or vulnerability chain (SCA). " +
-      "Searches up to 2000 findings (paginated). Use list_findings first to get valid finding IDs.",
+      "Use list_findings first to get valid finding IDs.",
     {
       scanId: z.string().uuid().describe("The scan UUID"),
       findingId: z.string().min(1).describe("The finding ID from list_findings"),
     },
     async ({ scanId, findingId }) => {
       try {
-        for (let page = 0; page < MAX_FINDING_SEARCH_PAGES; page++) {
-          const result = await client.getFindings({
-            scanId,
-            limit: FINDING_PAGE_SIZE,
-            offset: page * FINDING_PAGE_SIZE,
-          });
-          const finding = result.items.find((f) => f.id === findingId);
-          if (finding) {
-            return { content: [{ type: "text", text: JSON.stringify(finding, null, 2) }] };
-          }
-          if (result.items.length < FINDING_PAGE_SIZE) break;
+        const findings = await client.getAllFindings({ scanId });
+        const finding = findings.find((f) => f.id === findingId);
+        if (finding) {
+          return { content: [{ type: "text", text: JSON.stringify(finding, null, 2) }] };
         }
 
         return {
@@ -143,31 +167,62 @@ export function registerFindingTools(server: McpServer, client: CheckmarxClient)
   );
 }
 
-function shapeSummary(summary: FindingSummary): Record<string, unknown> {
-  const engineCounters = new Map<ScanType, EngineCounters>();
-  for (const counter of summary.counters ?? []) {
-    const existing = engineCounters.get(counter.type) ?? {
-      totalCounter: 0,
-      severityCounters: [],
-    };
-    existing.totalCounter += counter.counter;
-    existing.severityCounters.push({ severity: counter.severity, counter: counter.counter });
-    engineCounters.set(counter.type, existing);
-  }
-
+function summaryPerEngine(summary: ScanSummary): Record<string, EngineCounters> {
   const perEngine: Record<string, EngineCounters> = {};
-  for (const [type, counters] of engineCounters) {
-    perEngine[type] = counters;
+  for (const [engine, key] of Object.entries(SUMMARY_ENGINES)) {
+    const counters = summary[key];
+    if (counters) perEngine[engine] = toEngineCounters(counters);
   }
+  return perEngine;
+}
 
+function toEngineCounters(counters: EngineSummaryCounters): EngineCounters {
+  const severityCounters = counters.severityCounters ?? [];
+  return {
+    totalCounter:
+      counters.totalCounter ?? severityCounters.reduce((total, c) => total + c.counter, 0),
+    severityCounters,
+    statusCounters: counters.statusCounters ?? [],
+    stateCounters: counters.stateCounters ?? [],
+  };
+}
+
+function countFindings(findings: Finding[]): EngineCounters {
+  const count = (key: (f: Finding) => string) => {
+    const counts = new Map<string, number>();
+    for (const finding of findings) counts.set(key(finding), (counts.get(key(finding)) ?? 0) + 1);
+    return [...counts];
+  };
+  return {
+    totalCounter: findings.length,
+    severityCounters: count((f) => f.severity).map(([severity, counter]) => ({
+      severity: severity as Severity,
+      counter,
+    })),
+    statusCounters: count((f) => f.status).map(([status, counter]) => ({ status, counter })),
+    stateCounters: count((f) => f.state).map(([state, counter]) => ({ state, counter })),
+  };
+}
+
+function shapeSummary(
+  summary: ScanSummary,
+  perEngine: Record<string, EngineCounters>,
+): Record<string, unknown> {
+  const scaContainers = summary.scaContainersCounters;
   return {
     scanId: summary.scanId,
-    totalCounter: summary.totalCounter,
+    totalCounter: Object.values(perEngine).reduce((total, e) => total + e.totalCounter, 0),
     perEngine,
-    containersCounters: summary.containersCounters ?? perEngine.containers,
-    scaContainersCounters: summary.scaContainersCounters,
-    counters: summary.counters,
-    statusCounters: summary.statusCounters,
+    scaPackages: summary.scaPackagesCounters?.stateCounters?.reduce(
+      (total, c) => total + c.counter,
+      0,
+    ),
+    containersCounters: perEngine.containers,
+    scaContainersCounters: scaContainers && {
+      totalPackages: scaContainers.totalPackagesCounter,
+      totalVulnerabilities: scaContainers.totalVulnerabilitiesCounter,
+      severityCounters: scaContainers.severityVulnerabilitiesCounters ?? [],
+    },
   };
 }
 
