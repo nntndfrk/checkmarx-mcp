@@ -13,6 +13,12 @@ function makeConfig(overrides: Partial<Config["checkmarx"]> = {}): Config {
       iamUrl: "https://iam.checkmarx.net",
       ...overrides,
     },
+    scaResolver: {
+      version: "2.12.23",
+      image: "node:24.16.0-bookworm",
+      platform: "linux/amd64",
+      timeoutMs: 600_000,
+    },
     transport: "stdio",
     port: 3000,
   };
@@ -347,28 +353,87 @@ describe("CheckmarxClient", () => {
   });
 
   describe("getFindings", () => {
-    it("sends scan-id and filter params", async () => {
-      let capturedUrl = "";
-      const emptyResults = { totalCount: 0, filteredTotalCount: 0, results: [] };
+    function finding(id: number, type: string) {
+      return { id: `f-${id}`, type, severity: "HIGH" };
+    }
 
+    /** Serves `total` results in pages of `pageSize`, reading `offset` as a page index. */
+    function mockResults(results: unknown[], pageSize: number) {
+      const urls: string[] = [];
       globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
-        capturedUrl = String(url);
-        return new Response(JSON.stringify(emptyResults), { status: 200 });
+        urls.push(String(url));
+        const page = Number(new URL(String(url)).searchParams.get("offset"));
+        const body = {
+          totalCount: results.length,
+          results: results.slice(page * pageSize, (page + 1) * pageSize),
+        };
+        return new Response(JSON.stringify(body), { status: 200 });
       }) as typeof fetch;
+      return urls;
+    }
+
+    it("sends server-side filters and pages by page index", async () => {
+      const urls = mockResults([], 10_000);
 
       const client = createClient();
       await client.getFindings({
         scanId: "scan-1",
         severity: ["HIGH", "CRITICAL"],
+        state: ["TO_VERIFY"],
         type: ["sast"],
         limit: 50,
       });
 
-      expect(capturedUrl).toContain("scan-id=scan-1");
-      expect(capturedUrl).toContain("severity=HIGH%2CCRITICAL");
-      expect(capturedUrl).toContain("type=sast");
-      expect(capturedUrl).toContain("limit=50");
-      expect(capturedUrl).toContain("sort=-severity");
+      expect(urls).toHaveLength(1);
+      const params = new URL(urls[0] ?? "").searchParams;
+      expect(params.get("scan-id")).toBe("scan-1");
+      expect(params.get("severity")).toBe("HIGH,CRITICAL");
+      expect(params.get("state")).toBe("TO_VERIFY");
+      expect(params.get("limit")).toBe("10000");
+      expect(params.get("offset")).toBe("0");
+      expect(params.get("sort")).toBe("-severity");
+      expect(params.has("type")).toBe(false);
+      expect(params.has("exclude-result-types")).toBe(false);
+    });
+
+    it("filters by type on the client and recounts totalCount", async () => {
+      mockResults(
+        [finding(1, "sast"), finding(2, "sca"), finding(3, "sast"), finding(4, "kics")],
+        10_000,
+      );
+
+      const client = createClient();
+      const result = await client.getFindings({ scanId: "scan-1", type: ["sast"] });
+
+      expect(result.totalCount).toBe(2);
+      expect(result.items.map((f) => f.id)).toEqual(["f-1", "f-3"]);
+    });
+
+    it("applies offset and limit as item positions across pages", async () => {
+      const results = Array.from({ length: 10_005 }, (_, i) => finding(i, "sca"));
+      const urls = mockResults(results, 10_000);
+
+      const client = createClient();
+      const result = await client.getFindings({ scanId: "scan-1", offset: 9_998, limit: 5 });
+
+      expect(urls.map((u) => new URL(u).searchParams.get("offset"))).toEqual(["0", "1"]);
+      expect(result.totalCount).toBe(10_005);
+      expect(result.items.map((f) => f.id)).toEqual([
+        "f-9998",
+        "f-9999",
+        "f-10000",
+        "f-10001",
+        "f-10002",
+      ]);
+    });
+
+    it("excludes dev and test dependencies when asked", async () => {
+      const urls = mockResults([], 10_000);
+
+      const client = createClient();
+      await client.getFindings({ scanId: "scan-1", hideDevAndTestDependencies: true });
+
+      expect(urls[0]).toContain("exclude-result-types=DEV_AND_TEST");
     });
   });
 
@@ -439,19 +504,11 @@ describe("CheckmarxClient", () => {
       expect(config).toEqual([{ type: "containers", value: {} }]);
     });
 
-    it("injects enableContainersScan=false when sca and containers co-requested", async () => {
-      const config = await captureConfig(["sca", "containers"]);
-      expect(config).toEqual([
-        { type: "sca", value: { enableContainersScan: "false" } },
-        { type: "containers", value: {} },
-      ]);
-    });
-
-    it("applies sca override with sast + sca + containers", async () => {
+    it("sends no sca value when sca and containers are co-requested, like cx", async () => {
       const config = await captureConfig(["sast", "sca", "containers"]);
       expect(config).toEqual([
         { type: "sast", value: {} },
-        { type: "sca", value: { enableContainersScan: "false" } },
+        { type: "sca", value: {} },
         { type: "containers", value: {} },
       ]);
     });
@@ -476,13 +533,13 @@ describe("CheckmarxClient", () => {
   });
 
   describe("getFindingSummary", () => {
-    it("fetches summary for a scan", async () => {
+    it("returns the first scansSummaries entry", async () => {
       let capturedUrl = "";
       const summaryResponse = {
-        scanId: "scan-1",
-        totalCounter: 10,
-        counters: [{ type: "sast", severity: "HIGH", counter: 5 }],
-        statusCounters: [{ status: "NEW", counter: 8 }],
+        scansSummaries: [
+          { scanId: "scan-1", sastCounters: { totalCounter: 5, severityCounters: [] } },
+        ],
+        totalCount: 1,
       };
 
       globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
@@ -494,7 +551,18 @@ describe("CheckmarxClient", () => {
       const summary = await client.getFindingSummary("scan-1");
 
       expect(capturedUrl).toContain("scan-ids=scan-1");
-      expect(summary.totalCounter).toBe(10);
+      expect(summary.scanId).toBe("scan-1");
+      expect(summary.sastCounters?.totalCounter).toBe(5);
+    });
+
+    it("throws when the scan has no summary", async () => {
+      globalThis.fetch = vi.fn(
+        async () =>
+          new Response(JSON.stringify({ scansSummaries: [], totalCount: 0 }), { status: 200 }),
+      ) as typeof fetch;
+
+      const client = createClient();
+      await expect(client.getFindingSummary("scan-1")).rejects.toThrow("No summary found");
     });
   });
 
@@ -543,6 +611,45 @@ describe("CheckmarxClient", () => {
       expect(scanBody.handler.branch).toBe("feature/test");
 
       expect(scan.id).toBe("scan-1");
+    });
+
+    it("sends only the scan settings that were given", async () => {
+      let scanBody: Record<string, unknown> = {};
+      globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/api/uploads")) {
+          return new Response(JSON.stringify({ url: "https://storage.example.com/presigned" }), {
+            status: 200,
+          });
+        }
+        if (urlStr.includes("storage.example.com")) {
+          return new Response(null, { status: 200 });
+        }
+        if (typeof init?.body === "string") scanBody = JSON.parse(init.body);
+        return new Response(JSON.stringify(mockScanResponse.scans[0]), { status: 200 });
+      }) as typeof fetch;
+
+      const client = createClient({ projectId: "proj-1" });
+      await client.createScanFromUpload({
+        zipBuffer: Buffer.from("fake-zip-data"),
+        scanTypes: ["sast", "sca", "kics", "containers"],
+        settings: {
+          sastFilter: "!*.spec.ts",
+          presetName: "ASA Premium",
+          incremental: false,
+          kicsFilter: "!charts",
+        },
+      });
+
+      expect(scanBody.config).toEqual([
+        {
+          type: "sast",
+          value: { filter: "!*.spec.ts", presetName: "ASA Premium", incremental: "false" },
+        },
+        { type: "sca", value: {} },
+        { type: "kics", value: { filter: "!charts" } },
+        { type: "containers", value: {} },
+      ]);
     });
   });
 

@@ -1,0 +1,97 @@
+{
+  "scansSummaries": [
+    {
+      "tenantId": "00000000-0000-0000-0000-000000000000",
+      "scanId": "18f71fb2-db00-478a-889e-21a5cc4c724d",
+      "sastCounters": {
+        "severityCounters": [
+          {
+            "severity": "MEDIUM",
+            "counter": 1
+          },
+          {
+            "severity": "LOW",
+            "counter": 8
+          }
+        ],
+        "statusCounters": [
+          {
+            "status": "RECURRENT",
+            "counter": 9
+          }
+        ],
+        "stateCounters": [
+          {
+            "state": "TO_VERIFY",
+            "counter": 9
+          }
+        ],
+        "totalCounter": 9
+      },
+      "kicsCounters": {
+        "severityCounters": [],
+        "statusCounters": [],
+        "stateCounters": [],
+        "totalCounter": 0
+      },
+      "scaCounters": {
+        "severityCounters": [
+          {
+            "severity": "HIGH",
+            "counter": 4
+          }
+        ],
+        "statusCounters": [],
+        "stateCounters": [
+          {
+            "state": "TO_VERIFY",
+            "counter": 4
+          }
+        ],
+        "totalCounter": 4
+      },
+      "scaPackagesCounters": {
+        "severityCounters": [
+          {
+            "severity": "HIGH",
+            "counter": 4
+          }
+        ],
+        "statusCounters": [],
+        "stateCounters": [
+          {
+            "state": "TO_VERIFY",
+            "counter": 47
+          }
+        ],
+        "totalCounter": 47
+      },
+      "scaContainersCounters": {
+        "totalPackagesCounter": 0,
+        "totalVulnerabilitiesCounter": 0,
+        "severityVulnerabilitiesCounters": []
+      },
+      "apiSecCounters": {
+        "severityCounters": [],
+        "statusCounters": [],
+        "stateCounters": [],
+        "totalCounter": 0
+      },
+      "microEnginesCounters": {
+        "severityCounters": [],
+        "statusCounters": [],
+        "stateCounters": [],
+        "totalCounter": 0
+      },
+      "containersCounters": {
+        "totalPackagesCounter": 0,
+        "totalCounter": 0,
+        "totalVulnerableImages": 0,
+        "severityCounters": [],
+        "statusCounters": [],
+        "stateCounters": []
+      }
+    }
+  ],
+  "totalCount": 1
+}

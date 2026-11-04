@@ -164,28 +164,57 @@ export interface CvssDetails {
   score: number;
 }
 
-export interface FindingSummary {
+/** One entry of `GET /api/scan-summary` (`scansSummaries[]`). Only the fields the MCP reads. */
+export interface ScanSummary {
   scanId: string;
-  totalCounter: number;
-  counters: SummaryCounter[];
-  statusCounters: StatusCounter[];
-  containersCounters?: EngineCounters;
-  scaContainersCounters?: EngineCounters;
+  sastCounters?: EngineSummaryCounters;
+  scaCounters?: EngineSummaryCounters;
+  scaPackagesCounters?: EngineSummaryCounters;
+  kicsCounters?: EngineSummaryCounters;
+  apiSecCounters?: EngineSummaryCounters;
+  containersCounters?: EngineSummaryCounters & {
+    totalPackagesCounter?: number;
+    totalVulnerableImages?: number;
+  };
+  scaContainersCounters?: {
+    totalPackagesCounter?: number;
+    totalVulnerabilitiesCounter?: number;
+    severityVulnerabilitiesCounters?: SeverityCounter[];
+  };
 }
 
+export interface ScanSummaryResponse {
+  scansSummaries: ScanSummary[];
+  totalCount: number;
+}
+
+export interface EngineSummaryCounters {
+  totalCounter?: number;
+  severityCounters?: SeverityCounter[];
+  statusCounters?: StatusCounter[];
+  stateCounters?: StateCounter[];
+}
+
+/** Severity breakdown of one engine, as returned by `findings_summary`. */
 export interface EngineCounters {
   totalCounter: number;
-  severityCounters: Array<{ severity: Severity; counter: number }>;
+  severityCounters: SeverityCounter[];
+  statusCounters: StatusCounter[];
+  stateCounters: StateCounter[];
 }
 
-export interface SummaryCounter {
-  type: ScanType;
+export interface SeverityCounter {
   severity: Severity;
   counter: number;
 }
 
 export interface StatusCounter {
   status: string;
+  counter: number;
+}
+
+export interface StateCounter {
+  state: string;
   counter: number;
 }
 
@@ -232,6 +261,20 @@ export interface ScanConfig {
   value: Record<string, unknown>;
 }
 
+/** Optional engine settings, as accepted by `cx scan create`. */
+export interface ScanSettings {
+  /** SAST file filter, e.g. `!*.spec.ts,!test` (`--sast-filter`). */
+  sastFilter?: string;
+  /** SCA file filter (`--sca-filter`). */
+  scaFilter?: string;
+  /** KICS (IaC) file filter (`--iac-security-filter`). */
+  kicsFilter?: string;
+  /** SAST preset name (`--sast-preset-name`). */
+  presetName?: string;
+  /** Incremental SAST scan (`--sast-incremental`). */
+  incremental?: boolean;
+}
+
 export interface ListProjectsParams {
   name?: string;
   limit?: number;
@@ -251,6 +294,8 @@ export interface ListFindingsParams {
   severity?: Severity[];
   type?: ScanType[];
   state?: FindingState[];
+  /** Hide SCA findings in dev and test dependencies. */
+  hideDevAndTestDependencies?: boolean;
   limit?: number;
   offset?: number;
 }

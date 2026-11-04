@@ -3,7 +3,7 @@
   "name": "io.github.nntndfrk/checkmarx-mcp",
   "title": "Checkmarx One",
   "description": "MCP server for Checkmarx One: projects, scans, findings, and triggering scans.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "websiteUrl": "https://github.com/nntndfrk/checkmarx-mcp#readme",
   "repository": {
     "url": "https://github.com/nntndfrk/checkmarx-mcp",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@nntndfrk/checkmarx-mcp",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       },
@@ -58,6 +58,38 @@
           "name": "LOG_LEVEL",
           "description": "Logging verbosity: debug, info, or error",
           "default": "info"
+        },
+        {
+          "name": "CHECKMARX_SCA_RESOLVER",
+          "description": "Resolve SCA dependencies locally in trigger_scan_local, as cx --sca-resolver does: docker or native (off when unset)"
+        },
+        {
+          "name": "CHECKMARX_SCA_RESOLVER_PATH",
+          "description": "Path to the ScaResolver binary (required for native)"
+        },
+        {
+          "name": "CHECKMARX_SCA_RESOLVER_VERSION",
+          "description": "SCA Resolver version that docker mode downloads",
+          "default": "2.12.23"
+        },
+        {
+          "name": "CHECKMARX_SCA_RESOLVER_IMAGE",
+          "description": "Image docker mode runs SCA Resolver in; needs the package managers your projects use",
+          "default": "node:24.16.0-bookworm"
+        },
+        {
+          "name": "CHECKMARX_SCA_RESOLVER_PLATFORM",
+          "description": "Docker platform for SCA Resolver (x86_64 build only)",
+          "default": "linux/amd64"
+        },
+        {
+          "name": "CHECKMARX_SCA_RESOLVER_TIMEOUT_MS",
+          "description": "SCA Resolver timeout in milliseconds",
+          "default": "600000"
+        },
+        {
+          "name": "CHECKMARX_SCA_RESOLVER_SHA256",
+          "description": "Expected SHA-256 of the downloaded SCA Resolver tarball (defaults to the published checksum)"
         }
       ]
     }

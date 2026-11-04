@@ -12,6 +12,12 @@ function makeConfig(overrides: Partial<Config["checkmarx"]> = {}): Config {
       iamUrl: "https://iam.checkmarx.net",
       ...overrides,
     },
+    scaResolver: {
+      version: "2.12.23",
+      image: "node:24.16.0-bookworm",
+      platform: "linux/amd64",
+      timeoutMs: 600_000,
+    },
     transport: "stdio",
     port: 3000,
   };

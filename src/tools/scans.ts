@@ -1,7 +1,12 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { CheckmarxClient } from "../api/client.js";
+import { type CheckmarxClient, DEFAULT_SCAN_TYPES } from "../api/client.js";
 import type { ScanType } from "../api/types.js";
+import { type ScaResolution, type ScaResolver, splitArgs } from "../utils/sca-resolver.js";
+import { type ExtraZipEntry, stageDirectory, zipDirectory } from "../utils/zip.js";
 
 const ScanStatusEnum = z.enum(["Queued", "Running", "Completed", "Failed", "Partial", "Canceled"]);
 const ScanTypeEnum = z.enum(["sast", "sca", "kics", "apisec", "secrets", "containers"]);
@@ -11,7 +16,14 @@ const ScanTypeEnum = z.enum(["sast", "sca", "kics", "apisec", "secrets", "contai
 const IMAGE_REF_REGEX =
   /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-f0-9]{64})?$/;
 
-export function registerScanTools(server: McpServer, client: CheckmarxClient): void {
+/** Name `cx` gives the SCA Resolver output inside the zip. */
+const SCA_RESULTS_ENTRY = ".cxsca-results.json";
+
+export function registerScanTools(
+  server: McpServer,
+  client: CheckmarxClient,
+  scaResolver?: ScaResolver,
+): void {
   server.tool(
     "list_scans",
     "List recent scans, optionally filtered by project and status. Returns scan IDs, status, engines, and timestamps.",
@@ -105,8 +117,7 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
         .optional()
         .describe(
           "Scanner engines to run (defaults to sast, sca, kics). " +
-            "Use 'containers' to scan Dockerfiles and their base image layers for CVEs. " +
-            "Combining 'sca' and 'containers' automatically sets enableContainersScan=false on the SCA engine.",
+            "Use 'containers' to scan Dockerfiles and their base image layers for CVEs.",
         ),
     },
     async ({ projectId, repoUrl, branch, scanTypes }) => {
@@ -150,7 +161,13 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
 
   server.tool(
     "trigger_scan_local",
-    "Scan a local directory by zipping and uploading it. Returns the created scan ID for status polling.",
+    "Scan a local directory by zipping and uploading it. Returns the created scan ID for status polling. " +
+      "By default the zip holds the same files as a `cx scan create` pipeline scan, so results can be compared. " +
+      "Local build output and caches (e.g. dist/, .angular/) are included like cx does; " +
+      "add them to excludePatterns if the pipeline scans a clean checkout. " +
+      "Use a separate branch label (e.g. '<branch>-mcp') so manual scans don't mix into the real branch history. " +
+      "When SCA Resolver is configured, dependencies are resolved locally as cx --sca-resolver does, " +
+      "so the scan stores the same SCA packages and findings as the pipeline scan.",
     {
       projectId: z
         .string()
@@ -167,8 +184,7 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
         .optional()
         .describe(
           "Scanner engines to run (defaults to sast, sca, kics). " +
-            "Use 'containers' to scan Dockerfiles and their base image layers for CVEs. " +
-            "Combining 'sca' and 'containers' automatically sets enableContainersScan=false on the SCA engine.",
+            "Use 'containers' to scan Dockerfiles and their base image layers for CVEs.",
         ),
       excludePatterns: z
         .array(z.string())
@@ -176,17 +192,102 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
         .describe(
           "Additional glob patterns to exclude from zip (node_modules, .git already excluded)",
         ),
+      zipMode: z
+        .enum(["cx", "all"])
+        .default("cx")
+        .describe(
+          "Which files go into the zip. 'cx' (default): the file types the cx CLI uploads, " +
+            "skipping node_modules, .git, .vs, .vscode and .idea. " +
+            "'all': every file type, skipping build output, dependency and tool folders " +
+            "(dist, build, vendor, iac, .angular and similar).",
+        ),
+      sastFilter: z
+        .string()
+        .optional()
+        .describe("SAST file filter, same as cx --sast-filter (e.g. '!*.spec.ts,!test')"),
+      scaFilter: z.string().optional().describe("SCA file filter, same as cx --sca-filter"),
+      kicsFilter: z
+        .string()
+        .optional()
+        .describe("KICS (IaC) file filter, same as cx --iac-security-filter"),
+      presetName: z.string().optional().describe("SAST preset name, same as cx --sast-preset-name"),
+      incremental: z
+        .boolean()
+        .optional()
+        .describe("Run an incremental SAST scan, same as cx --sast-incremental"),
+      scaResolution: z
+        .enum(["local", "cloud"])
+        .optional()
+        .describe(
+          "Where SCA dependencies are resolved. 'local': run SCA Resolver on the directory and upload " +
+            "its result, as cx --sca-resolver does (needs CHECKMARX_SCA_RESOLVER). " +
+            "'cloud': Checkmarx resolves the uploaded lock files, dev dependencies included. " +
+            "Defaults to 'local' when SCA Resolver is configured and sca is requested, else 'cloud'.",
+        ),
+      scaResolverParams: z
+        .string()
+        .optional()
+        .describe(
+          "SCA Resolver arguments, the same string as cx --sca-resolver-params " +
+            "(e.g. \"--ignore-dev-dependencies --extract-archives zip,ear,war\"). Only for scaResolution 'local'.",
+        ),
     },
-    async ({ projectId, directory, branch, scanTypes, excludePatterns }) => {
+    async ({
+      projectId,
+      directory,
+      branch,
+      scanTypes,
+      excludePatterns,
+      zipMode,
+      sastFilter,
+      scaFilter,
+      kicsFilter,
+      presetName,
+      incremental,
+      scaResolution,
+      scaResolverParams,
+    }) => {
+      const types = (scanTypes ?? DEFAULT_SCAN_TYPES) as ScanType[];
+      const resolution =
+        scaResolution ?? (scaResolver?.enabled && types.includes("sca") ? "local" : "cloud");
+      let workDir: string | undefined;
       try {
-        const { zipDirectory } = await import("../utils/zip.js");
-        const zipBuffer = await zipDirectory(directory, excludePatterns);
+        if (resolution === "local" && !scaResolver?.enabled) {
+          throw new Error(
+            "scaResolution 'local' needs SCA Resolver. Set CHECKMARX_SCA_RESOLVER to 'docker' or 'native'.",
+          );
+        }
+        if (resolution === "local" && !types.includes("sca")) {
+          throw new Error("scaResolution 'local' needs 'sca' in scanTypes.");
+        }
+        if (resolution === "cloud" && scaResolverParams) {
+          throw new Error("scaResolverParams is only used with scaResolution 'local'.");
+        }
+
+        const extraEntries: ExtraZipEntry[] = [];
+        let sca: ScaResolution | undefined;
+        if (resolution === "local" && scaResolver) {
+          const project = await client.getProject(client.resolveProjectId(projectId));
+          workDir = await mkdtemp(join(tmpdir(), "checkmarx-mcp-sca-"));
+          const stageDir = join(workDir, "src");
+          await stageDirectory(directory, stageDir, excludePatterns, zipMode);
+          sca = await scaResolver.resolve({
+            sourceDir: stageDir,
+            outDir: join(workDir, "out"),
+            projectName: project.name,
+            params: splitArgs(scaResolverParams ?? ""),
+          });
+          extraEntries.push({ name: SCA_RESULTS_ENTRY, path: sca.outputPath });
+        }
+
+        const zipBuffer = await zipDirectory(directory, excludePatterns, zipMode, extraEntries);
 
         const scan = await client.createScanFromUpload({
           projectId,
           zipBuffer,
           branch,
           scanTypes: scanTypes as ScanType[] | undefined,
+          settings: { sastFilter, scaFilter, kicsFilter, presetName, incremental },
         });
 
         return {
@@ -201,6 +302,10 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
                   status: scan.status,
                   projectId: scan.projectId,
                   directory,
+                  ...(types.includes("sca") && { scaResolution: resolution }),
+                  ...(sca && {
+                    scaResolver: { version: sca.version, packageCount: sca.packageCount },
+                  }),
                 },
                 null,
                 2,
@@ -218,6 +323,8 @@ export function registerScanTools(server: McpServer, client: CheckmarxClient): v
           ],
           isError: true,
         };
+      } finally {
+        if (workDir) await rm(workDir, { recursive: true, force: true });
       }
     },
   );
