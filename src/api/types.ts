@@ -306,3 +306,22 @@ export interface CheckmarxApiError {
   type?: string;
   correlationId?: string;
 }
+
+/** One scan from `/api/sast-metadata`. */
+export interface SastMetadata {
+  scanId: string;
+  loc?: number;
+  fileCount?: number;
+  isIncremental?: boolean;
+  queryPreset?: string;
+}
+
+/** A package from the SCA `ScanReportJson` export, as `cx` reads it. */
+export interface ScaPackage {
+  Id: string;
+  Name?: string;
+  Version?: string;
+  IsDirectDependency?: boolean;
+  IsDevelopmentDependency?: boolean;
+  IsTestDependency?: boolean;
+}

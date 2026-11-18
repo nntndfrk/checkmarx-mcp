@@ -3,7 +3,7 @@
   "name": "io.github.nntndfrk/checkmarx-mcp",
   "title": "Checkmarx One",
   "description": "MCP server for Checkmarx One: projects, scans, findings, and triggering scans.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "websiteUrl": "https://github.com/nntndfrk/checkmarx-mcp#readme",
   "repository": {
     "url": "https://github.com/nntndfrk/checkmarx-mcp",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@nntndfrk/checkmarx-mcp",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "transport": {
         "type": "stdio"
       },
@@ -90,6 +90,29 @@
         {
           "name": "CHECKMARX_SCA_RESOLVER_SHA256",
           "description": "Expected SHA-256 of the downloaded SCA Resolver tarball (defaults to the published checksum)"
+        },
+        {
+          "name": "CHECKMARX_CONTAINERS_RESOLVER",
+          "description": "Resolve container images locally in trigger_scan_local by default, as cx does: docker or native (off when unset)"
+        },
+        {
+          "name": "CHECKMARX_CONTAINERS_RESOLVER_PATH",
+          "description": "Path to a containers resolver binary built from containers-resolver/main.go (required for native)"
+        },
+        {
+          "name": "CHECKMARX_CONTAINERS_RESOLVER_VERSION",
+          "description": "ast-cli tag whose containers-resolver, syft and stereoscope versions docker mode builds with",
+          "default": "2.3.27"
+        },
+        {
+          "name": "CHECKMARX_CONTAINERS_RESOLVER_PLATFORM",
+          "description": "Docker platform for building and running the containers resolver",
+          "default": "linux/amd64"
+        },
+        {
+          "name": "CHECKMARX_CONTAINERS_RESOLVER_TIMEOUT_MS",
+          "description": "Containers resolver timeout in milliseconds",
+          "default": "600000"
         }
       ]
     }

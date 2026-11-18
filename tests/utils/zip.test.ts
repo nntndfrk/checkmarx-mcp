@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { stageDirectory, synthesizeDockerfileZip, zipDirectory } from "../../src/utils/zip.js";
+import {
+  stageDirectory,
+  synthesizeDockerfileZip,
+  zipDirectory,
+  zipFiles,
+} from "../../src/utils/zip.js";
 import { zipEntries } from "../helpers/zip-entries.js";
 
 let testDir: string;
@@ -131,6 +136,24 @@ describe("zipDirectory", () => {
     }
   });
 
+  it("replaces a nested file of the same name with the extra entry", async () => {
+    const nested = join(testDir, ".checkmarx", "containers");
+    await mkdir(nested, { recursive: true });
+    await writeFile(join(nested, "containers-resolution.json"), "stale");
+    const extra = join(testDir, "..", `${testDir.split("/").pop()}-resolution.json`);
+    await writeFile(extra, "[]");
+    try {
+      const name = ".checkmarx/containers/containers-resolution.json";
+      const entries = zipEntries(
+        await zipDirectory(testDir, undefined, "cx", [{ name, path: extra }]),
+      );
+      expect(entries.filter((e) => e.endsWith("containers-resolution.json"))).toEqual([name]);
+    } finally {
+      await rm(extra);
+      await rm(join(testDir, ".checkmarx"), { recursive: true });
+    }
+  });
+
   it("throws on empty path", async () => {
     await expect(zipDirectory("")).rejects.toThrow("cannot be empty");
     await expect(zipDirectory("   ")).rejects.toThrow("cannot be empty");
@@ -215,6 +238,21 @@ describe("stageDirectory", () => {
       expect(await readFile(join(dest, "Dockerfile"), "utf8")).toBe("FROM node:22");
     } finally {
       await rm(dest, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("zipFiles", () => {
+  it("zips only the given files under their entry names", async () => {
+    const file = join(testDir, "..", `${testDir.split("/").pop()}-only.json`);
+    await writeFile(file, "[]");
+    try {
+      const entries = zipEntries(
+        await zipFiles([{ name: "cx-123/containers-resolution.json", path: file }]),
+      );
+      expect(entries).toEqual(["cx-123/containers-resolution.json"]);
+    } finally {
+      await rm(file);
     }
   });
 });

@@ -194,44 +194,28 @@ export async function zipDirectory(
       : {}),
   };
 
-  return new Promise<Buffer>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    const passthrough = new PassThrough();
+  const archive = archiver("zip", { zlib: { level: 6 } });
+  const buffer = collect(
+    archive,
+    "Zip produced empty output: directory may have no files after exclusions",
+  );
+  archive.glob("**/*", { cwd: absolutePath, dot: true, ...globOptions });
+  for (const entry of extraEntries) {
+    archive.file(entry.path, { name: entry.name });
+  }
+  archive.finalize();
+  return buffer;
+}
 
-    passthrough.on("data", (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
-
-    const archive = archiver("zip", { zlib: { level: 6 } });
-
-    archive.on("error", (err) => {
-      reject(new Error(`Archive error: ${err.message}`));
-    });
-
-    archive.on("warning", (err) => {
-      if (err.code === "ENOENT") return;
-      reject(new Error(`Archive warning: ${err.message}`));
-    });
-
-    archive.pipe(passthrough);
-
-    passthrough.on("end", () => {
-      const buffer = Buffer.concat(chunks);
-      if (buffer.length === 0) {
-        reject(
-          new Error("Zip produced empty output — directory may have no files after exclusions"),
-        );
-        return;
-      }
-      resolve(buffer);
-    });
-
-    archive.glob("**/*", { cwd: absolutePath, dot: true, ...globOptions });
-    for (const entry of extraEntries) {
-      archive.file(entry.path, { name: entry.name });
-    }
-    archive.finalize();
-  });
+/** Builds a zip that holds only the given files, as `cx` does for a containers-only scan. */
+export async function zipFiles(entries: ExtraZipEntry[]): Promise<Buffer> {
+  const archive = archiver("zip", { zlib: { level: 6 } });
+  const buffer = collect(archive, "Zip produced empty output");
+  for (const entry of entries) {
+    archive.file(entry.path, { name: entry.name });
+  }
+  archive.finalize();
+  return buffer;
 }
 
 /**
@@ -328,38 +312,39 @@ export async function synthesizeDockerfileZip(image: string): Promise<Buffer> {
   }
 
   const dockerfile = `FROM ${image.trim()}\n`;
+  const archive = archiver("zip", { store: true });
+  const buffer = collect(archive, "Synthesized Dockerfile zip produced empty output");
+  archive.append(dockerfile, { name: "Dockerfile" });
+  archive.finalize();
+  return buffer;
+}
 
+/**
+ * Collects the archive output in memory. Rejects on archive errors and on
+ * warnings other than ENOENT (a file removed while it is read).
+ */
+function collect(archive: archiver.Archiver, emptyMessage: string): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];
     const passthrough = new PassThrough();
-
     passthrough.on("data", (chunk: Buffer) => {
       chunks.push(chunk);
     });
-
-    const archive = archiver("zip", { store: true });
-
-    archive.on("error", (err) => {
-      reject(new Error(`Archive error: ${err.message}`));
-    });
-
-    archive.on("warning", (err) => {
-      if (err.code === "ENOENT") return;
-      reject(new Error(`Archive warning: ${err.message}`));
-    });
-
-    archive.pipe(passthrough);
-
     passthrough.on("end", () => {
       const buffer = Buffer.concat(chunks);
       if (buffer.length === 0) {
-        reject(new Error("Synthesized Dockerfile zip produced empty output"));
+        reject(new Error(emptyMessage));
         return;
       }
       resolve(buffer);
     });
-
-    archive.append(dockerfile, { name: "Dockerfile" });
-    archive.finalize();
+    archive.on("error", (err) => {
+      reject(new Error(`Archive error: ${err.message}`));
+    });
+    archive.on("warning", (err) => {
+      if (err.code === "ENOENT") return;
+      reject(new Error(`Archive warning: ${err.message}`));
+    });
+    archive.pipe(passthrough);
   });
 }

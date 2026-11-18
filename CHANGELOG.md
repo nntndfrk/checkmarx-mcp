@@ -5,6 +5,46 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-18
+
+### Added
+
+- **Local container resolution in `trigger_scan_local`** (#5). With
+  `containersResolution: "local"`, the MCP resolves container images as
+  `cx scan create` does when the tenant flag `CONTAINER_ENGINE_CLI_ENABLED` is
+  on: it finds images in Dockerfiles, Docker Compose files and Helm charts,
+  analyses them with Checkmarx containers-resolver, and adds the result to the
+  zip as `.checkmarx/containers/containers-resolution.json`. When `containers`
+  is the only scan type, the zip holds only that file, as with `cx`. The
+  resolver runs on a copy of the folder, so the user's folder is never written
+  to. The result lists each image with its origins, files and package count,
+  and the images that could not be analysed.
+- `containerImages` on `trigger_scan_local`, the same as
+  `cx --container-images`, validated with the same format check. (#5)
+- `CHECKMARX_CONTAINERS_RESOLVER` (`docker` or `native`) makes local container
+  resolution the default, with `CHECKMARX_CONTAINERS_RESOLVER_PATH`,
+  `_VERSION` (ast-cli tag, default `2.3.27`), `_PLATFORM` and `_TIMEOUT_MS`.
+  Docker mode builds the wrapper in `containers-resolver/main.go` once inside
+  the ast-cli module at that tag and caches it under
+  `~/.cache/checkmarx-mcp/containers-resolver/`. (#5)
+- `trigger_scan_local` returns `warnings` when the scan can't match a `cx`
+  pipeline scan: SCA resolved in the cloud, containers resolved in the cloud
+  while the tenant flag is on, or images the resolver could not analyse. (#5)
+
+- `gitRef` and `extraPaths` on `trigger_scan_local` (#5). `gitRef` scans a
+  commit, branch or tag as a CI checkout sees it: tracked files only, checked
+  out to a temp folder with a temporary git index, so the user's index and
+  working tree don't change. `extraPaths` adds CI build output, such as
+  `dist/`, from the working tree.
+- `compare_scans` tool (#5). It compares two scans: engines, per-engine counts
+  by severity, findings matched by `similarityId`, SAST findings per file,
+  SAST LOC, and the stored SCA packages with their direct, dev and test flags.
+
+### Changed
+
+- `scaResolution: "local"` works without `CHECKMARX_SCA_RESOLVER`: it runs SCA
+  Resolver in Docker mode with the default settings, instead of failing. (#5)
+
 ## [0.3.0] - 2026-11-04
 
 ### Added
