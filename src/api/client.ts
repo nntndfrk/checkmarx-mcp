@@ -11,6 +11,8 @@ import type {
   ListScansParams,
   PaginatedResponse,
   Project,
+  SastMetadata,
+  ScaPackage,
   Scan,
   ScanConfig,
   ScanSettings,
@@ -35,6 +37,9 @@ export const DEFAULT_SCAN_TYPES: readonly ScanType[] = ["sast", "sca", "kics"];
 const RESULTS_PAGE_SIZE = 10_000;
 const MAX_RESULTS_PAGES = 10;
 const RESULTS_TIMEOUT_MS = 120_000;
+/** `cx` polls SCA exports every few seconds for up to 15 minutes. */
+const EXPORT_POLL_MS = 3_000;
+const EXPORT_TIMEOUT_MS = 900_000;
 
 export class CheckmarxClient {
   private readonly baseUrl: string;
@@ -187,6 +192,19 @@ export class CheckmarxClient {
     };
   }
 
+  /**
+   * Reads a tenant feature flag as `cx` does (ast-cli
+   * `FeatureFlagsHTTPWrapper.GetSpecificFlag`): `GET /api/flags/<name>`, with
+   * the tenant ID from the access token as `filter`.
+   */
+  async getFeatureFlag(name: string): Promise<boolean> {
+    const tenantId = tenantIdFromToken(await this.auth.getToken());
+    const flag = await this.request<{ name: string; status: boolean }>(
+      `/api/flags/${encodeURIComponent(name)}?filter=${encodeURIComponent(tenantId)}`,
+    );
+    return flag.status === true;
+  }
+
   async getProject(projectId: string): Promise<Project> {
     return this.request<Project>(`/api/projects/${projectId}`);
   }
@@ -259,6 +277,71 @@ export class CheckmarxClient {
       if (results.length < RESULTS_PAGE_SIZE || findings.length >= raw.totalCount) break;
     }
     return findings;
+  }
+
+  /** SAST metadata (LOC, file count, preset) per scan, from `/api/sast-metadata`. */
+  async getSastMetadata(scanIds: string[]): Promise<SastMetadata[]> {
+    const raw = await this.request<{ scans?: SastMetadata[] | null }>(
+      `/api/sast-metadata?scan-ids=${encodeURIComponent(scanIds.join(","))}`,
+    );
+    return raw.scans ?? [];
+  }
+
+  /**
+   * The SCA packages a scan stores, with their direct, dev and test flags.
+   * Reads the `ScanReportJson` export, as `cx` does (ast-cli
+   * `services.GetExportPackage`).
+   */
+  async getScaPackages(scanId: string): Promise<ScaPackage[]> {
+    const { exportId } = await this.request<{ exportId: string }>("/api/sca/export/requests", {
+      method: "POST",
+      body: {
+        ScanID: scanId,
+        FileFormat: "ScanReportJson",
+        ExportParameters: {
+          hideDevAndTestDependencies: false,
+          showOnlyEffectiveLicenses: false,
+          excludePackages: false,
+          excludeLicenses: false,
+          excludeVulnerabilities: false,
+          excludePolicies: false,
+        },
+      },
+    });
+
+    const deadline = Date.now() + EXPORT_TIMEOUT_MS;
+    let status: { exportStatus: string; fileUrl?: string; errorMessage?: string };
+    for (;;) {
+      status = await this.request(
+        `/api/sca/export/requests?returnUrl=true&exportId=${encodeURIComponent(exportId)}`,
+      );
+      if (status.exportStatus !== "Exporting" && status.exportStatus !== "Pending") break;
+      if (Date.now() > deadline) {
+        throw new Error(`SCA export for scan ${scanId} timed out`);
+      }
+      await this.delay(EXPORT_POLL_MS);
+    }
+    if (status.exportStatus !== "Completed" || !status.fileUrl) {
+      const reason = status.errorMessage ? `: ${status.errorMessage}` : "";
+      throw new Error(
+        `SCA export for scan ${scanId} ended with status ${status.exportStatus}${reason}`,
+      );
+    }
+
+    const url = new URL(status.fileUrl, `${this.baseUrl}/`).toString();
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${await this.auth.getToken()}` },
+      signal: AbortSignal.timeout(RESULTS_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Could not download the SCA export for scan ${scanId}: HTTP ${response.status}`,
+      );
+    }
+    const report = JSON.parse((await response.text()).replace(/^\uFEFF/, "")) as {
+      Packages?: ScaPackage[] | null;
+    };
+    return report.Packages ?? [];
   }
 
   async getFindingSummary(scanId: string): Promise<ScanSummary> {
@@ -390,6 +473,24 @@ export class CheckmarxClient {
       return { type, value };
     });
   }
+}
+
+/** The tenant ID part of the `tenant_id` claim (`<name>::<id>`), as `cx` reads it. */
+function tenantIdFromToken(token: string): string {
+  let claim: unknown;
+  try {
+    const payload = token.split(".")[1] ?? "";
+    claim = (
+      JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>
+    ).tenant_id;
+  } catch {
+    throw new Error("Could not read the tenant ID: the access token is not a JWT");
+  }
+  const tenantId = typeof claim === "string" ? claim.split("::")[1] : undefined;
+  if (!tenantId) {
+    throw new Error("Could not read the tenant ID: the access token has no tenant_id claim");
+  }
+  return tenantId;
 }
 
 function sanitizeImageRef(image: string): string {

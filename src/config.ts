@@ -25,6 +25,33 @@ const ScaResolverSchema = z
     path: ["path"],
   });
 
+const ContainersResolverSchema = z
+  .object({
+    mode: z
+      .enum(["docker", "native"], {
+        errorMap: () => ({
+          message: "CHECKMARX_CONTAINERS_RESOLVER must be 'docker' or 'native'",
+        }),
+      })
+      .optional(),
+    path: z.string().trim().min(1).optional(),
+    version: z
+      .string()
+      .trim()
+      .regex(
+        /^[A-Za-z0-9][A-Za-z0-9._-]*$/,
+        "CHECKMARX_CONTAINERS_RESOLVER_VERSION must be an ast-cli tag such as 2.3.27",
+      )
+      .default("2.3.27"),
+    platform: z.string().trim().min(1).default("linux/amd64"),
+    timeoutMs: z.coerce.number().int().positive().default(600_000),
+  })
+  .refine((resolver) => resolver.mode !== "native" || resolver.path, {
+    message:
+      "CHECKMARX_CONTAINERS_RESOLVER_PATH is required when CHECKMARX_CONTAINERS_RESOLVER=native",
+    path: ["path"],
+  });
+
 const ConfigSchema = z.object({
   checkmarx: z.object({
     apiKey: z.string().trim().min(1, "CHECKMARX_API_KEY is required"),
@@ -40,12 +67,14 @@ const ConfigSchema = z.object({
     projectId: z.string().uuid().optional(),
   }),
   scaResolver: ScaResolverSchema,
+  containersResolver: ContainersResolverSchema,
   transport: TransportSchema,
   port: z.coerce.number().int().min(1).max(65535).default(3000),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
 export type ScaResolverConfig = Config["scaResolver"];
+export type ContainersResolverConfig = Config["containersResolver"];
 
 export function loadConfig(): Config {
   const raw = {
@@ -64,6 +93,13 @@ export function loadConfig(): Config {
       platform: process.env.CHECKMARX_SCA_RESOLVER_PLATFORM || undefined,
       timeoutMs: process.env.CHECKMARX_SCA_RESOLVER_TIMEOUT_MS || undefined,
       sha256: process.env.CHECKMARX_SCA_RESOLVER_SHA256 || undefined,
+    },
+    containersResolver: {
+      mode: process.env.CHECKMARX_CONTAINERS_RESOLVER || undefined,
+      path: process.env.CHECKMARX_CONTAINERS_RESOLVER_PATH || undefined,
+      version: process.env.CHECKMARX_CONTAINERS_RESOLVER_VERSION || undefined,
+      platform: process.env.CHECKMARX_CONTAINERS_RESOLVER_PLATFORM || undefined,
+      timeoutMs: process.env.CHECKMARX_CONTAINERS_RESOLVER_TIMEOUT_MS || undefined,
     },
     transport: process.env.TRANSPORT || undefined,
     port: process.env.PORT || undefined,

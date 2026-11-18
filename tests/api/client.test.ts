@@ -19,6 +19,11 @@ function makeConfig(overrides: Partial<Config["checkmarx"]> = {}): Config {
       platform: "linux/amd64",
       timeoutMs: 600_000,
     },
+    containersResolver: {
+      version: "2.3.27",
+      platform: "linux/amd64",
+      timeoutMs: 600_000,
+    },
     transport: "stdio",
     port: 3000,
   };
@@ -327,6 +332,123 @@ describe("CheckmarxClient", () => {
 
       expect(capturedUrl).toContain("limit=10");
       expect(capturedUrl).toContain("offset=0");
+    });
+  });
+
+  describe("getFeatureFlag", () => {
+    function jwt(claims: Record<string, unknown>): string {
+      const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+      return `${encode({ alg: "none" })}.${encode(claims)}.sig`;
+    }
+
+    it("asks for the flag with the tenant ID from the token, like cx", async () => {
+      mockAuth.token = jwt({ tenant_id: "my-tenant::0a1b2c3d" });
+      let calledUrl = "";
+      globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+        calledUrl = String(url);
+        return new Response(JSON.stringify({ name: "CONTAINER_ENGINE_CLI_ENABLED", status: true }));
+      }) as typeof fetch;
+
+      await expect(createClient().getFeatureFlag("CONTAINER_ENGINE_CLI_ENABLED")).resolves.toBe(
+        true,
+      );
+      expect(calledUrl).toBe(
+        "https://ast.checkmarx.net/api/flags/CONTAINER_ENGINE_CLI_ENABLED?filter=0a1b2c3d",
+      );
+    });
+
+    it("returns false for a disabled flag", async () => {
+      mockAuth.token = jwt({ tenant_id: "my-tenant::0a1b2c3d" });
+      globalThis.fetch = vi.fn(
+        async () => new Response(JSON.stringify({ name: "X", status: false })),
+      ) as typeof fetch;
+
+      await expect(createClient().getFeatureFlag("X")).resolves.toBe(false);
+    });
+
+    it("throws when the token has no tenant_id claim", async () => {
+      mockAuth.token = jwt({ sub: "user" });
+
+      await expect(createClient().getFeatureFlag("X")).rejects.toThrow("no tenant_id claim");
+    });
+  });
+
+  describe("getSastMetadata", () => {
+    it("asks for all scans in one call, like cx", async () => {
+      let calledUrl = "";
+      globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+        calledUrl = String(url);
+        return new Response(JSON.stringify({ scans: [{ scanId: "a", loc: 10 }] }));
+      }) as typeof fetch;
+
+      await expect(createClient().getSastMetadata(["a", "b"])).resolves.toEqual([
+        { scanId: "a", loc: 10 },
+      ]);
+      expect(calledUrl).toBe("https://ast.checkmarx.net/api/sast-metadata?scan-ids=a%2Cb");
+    });
+  });
+
+  describe("getScaPackages", () => {
+    it("requests a ScanReportJson export, polls it and reads the packages", async () => {
+      const calls: Array<{ url: string; method: string; body?: string; auth?: string }> = [];
+      let polls = 0;
+      globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const headers = init?.headers as Record<string, string> | undefined;
+        calls.push({
+          url: String(url),
+          method: init?.method ?? "GET",
+          body: init?.body as string | undefined,
+          auth: headers?.Authorization,
+        });
+        if (init?.method === "POST") {
+          return new Response(JSON.stringify({ exportId: "exp-1" }), { status: 202 });
+        }
+        if (String(url).includes("/api/sca/export/requests?")) {
+          polls++;
+          return new Response(
+            JSON.stringify(
+              polls === 1
+                ? { exportStatus: "Exporting" }
+                : { exportStatus: "Completed", fileUrl: "https://files.example.com/report.json" },
+            ),
+          );
+        }
+        return new Response(
+          `\uFEFF${JSON.stringify({ Packages: [{ Id: "rxjs", IsDirectDependency: true }] })}`,
+        );
+      }) as typeof fetch;
+      const client = createClient();
+      // biome-ignore lint/suspicious/noExplicitAny: skip the poll delay
+      vi.spyOn(client as any, "delay").mockResolvedValue(undefined);
+
+      await expect(client.getScaPackages("scan-1")).resolves.toEqual([
+        { Id: "rxjs", IsDirectDependency: true },
+      ]);
+      expect(calls[0]?.url).toBe("https://ast.checkmarx.net/api/sca/export/requests");
+      expect(JSON.parse(calls[0]?.body ?? "{}")).toMatchObject({
+        ScanID: "scan-1",
+        FileFormat: "ScanReportJson",
+        ExportParameters: { hideDevAndTestDependencies: false },
+      });
+      expect(calls[1]?.url).toBe(
+        "https://ast.checkmarx.net/api/sca/export/requests?returnUrl=true&exportId=exp-1",
+      );
+      expect(calls.at(-1)).toMatchObject({
+        url: "https://files.example.com/report.json",
+        auth: "Bearer mock-access-token",
+      });
+    });
+
+    it("fails when the export fails", async () => {
+      globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) =>
+        init?.method === "POST"
+          ? new Response(JSON.stringify({ exportId: "exp-1" }), { status: 202 })
+          : new Response(JSON.stringify({ exportStatus: "Failed", errorMessage: "no SCA" })),
+      ) as typeof fetch;
+
+      await expect(createClient().getScaPackages("scan-1")).rejects.toThrow(
+        "SCA export for scan scan-1 ended with status Failed: no SCA",
+      );
     });
   });
 

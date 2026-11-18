@@ -1,10 +1,10 @@
-import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ScaResolverConfig } from "../config.js";
 import type { Logger } from "../logger.js";
+import { type ProcessResult, lastLines, runProcess } from "./process.js";
 
 const DOWNLOAD_BASE_URL = "https://sca-downloads.s3.amazonaws.com/cli";
 const BINARY = "ScaResolver";
@@ -13,7 +13,6 @@ const OUTPUT_FILE = "sca.json";
 const DOWNLOAD_TIMEOUT_MS = 300_000;
 const QUICK_COMMAND_TIMEOUT_MS = 30_000;
 const LOG_TAIL_LINES = 50;
-const MAX_OUTPUT_CHARS = 256 * 1024;
 
 /** SCA Resolver exit codes, plus the ones `docker run` uses when it can't start the command. */
 const EXIT_CODES: Record<number, string> = {
@@ -90,18 +89,18 @@ export class ScaResolver {
     private readonly cacheDir = join(homedir(), ".cache", "checkmarx-mcp", "sca-resolver"),
   ) {}
 
+  /** True when CHECKMARX_SCA_RESOLVER is set, so local resolution is the default. */
   get enabled(): boolean {
     return this.config.mode !== undefined;
   }
 
-  async resolve(options: ResolveOptions): Promise<ScaResolution> {
-    const { mode } = this.config;
-    if (!mode) {
-      throw new ScaResolverError(
-        "SCA Resolver is not configured. Set CHECKMARX_SCA_RESOLVER to 'docker' or 'native'.",
-      );
-    }
+  /** The configured mode, or `docker` when local resolution is asked for per call. */
+  get mode(): "docker" | "native" {
+    return this.config.mode ?? "docker";
+  }
 
+  async resolve(options: ResolveOptions): Promise<ScaResolution> {
+    const { mode } = this;
     await mkdir(options.outDir, { recursive: true });
     const outputPath = join(options.outDir, OUTPUT_FILE);
     const { version, output } =
@@ -155,7 +154,7 @@ export class ScaResolver {
     const result = await runProcess("docker", args, {
       timeoutMs: this.config.timeoutMs,
       // Killing `docker run` does not stop the container.
-      onTimeout: () => void runProcess("docker", ["rm", "-f", name], {}),
+      onTimeout: () => void runProcess("docker", ["rm", "-f", name]),
     });
     this.checkResult(result);
     return { version: this.config.version, output: result.output };
@@ -318,55 +317,4 @@ function countPackages(raw: string): number | undefined {
   } catch {
     return undefined;
   }
-}
-
-function lastLines(output: string, count: number): string {
-  return output
-    .split(/\r?\n/)
-    .filter((line) => line.trim() !== "")
-    .slice(-count)
-    .join("\n");
-}
-
-interface ProcessResult {
-  code: number | null;
-  output: string;
-  timedOut: boolean;
-  error?: Error;
-}
-
-/** Runs a command without a shell and keeps the tail of stdout and stderr. */
-function runProcess(
-  command: string,
-  args: string[],
-  options: { cwd?: string; timeoutMs?: number; onTimeout?: () => void },
-): Promise<ProcessResult> {
-  return new Promise((resolve) => {
-    let output = "";
-    let timedOut = false;
-    const append = (chunk: Buffer) => {
-      output = (output + chunk.toString()).slice(-MAX_OUTPUT_CHARS);
-    };
-
-    const child = spawn(command, args, { cwd: options.cwd, stdio: ["ignore", "pipe", "pipe"] });
-    const timer =
-      options.timeoutMs === undefined
-        ? undefined
-        : setTimeout(() => {
-            timedOut = true;
-            options.onTimeout?.();
-            child.kill("SIGKILL");
-          }, options.timeoutMs);
-
-    child.stdout?.on("data", append);
-    child.stderr?.on("data", append);
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      resolve({ code: null, output, timedOut, error });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code, output, timedOut });
-    });
-  });
 }

@@ -123,6 +123,54 @@ describe("loadConfig", () => {
     expect(() => loadConfig()).toThrow("Invalid configuration");
   });
 
+  it("leaves the containers resolver off with cx 2.3.27 defaults", () => {
+    const config = loadConfig();
+
+    expect(config.containersResolver).toEqual({
+      mode: undefined,
+      path: undefined,
+      version: "2.3.27",
+      platform: "linux/amd64",
+      timeoutMs: 600_000,
+    });
+  });
+
+  it("reads the containers resolver settings", () => {
+    process.env.CHECKMARX_CONTAINERS_RESOLVER = "native";
+    process.env.CHECKMARX_CONTAINERS_RESOLVER_PATH = "/opt/containers-resolver";
+    process.env.CHECKMARX_CONTAINERS_RESOLVER_VERSION = "2.3.30";
+    process.env.CHECKMARX_CONTAINERS_RESOLVER_PLATFORM = "linux/arm64";
+    process.env.CHECKMARX_CONTAINERS_RESOLVER_TIMEOUT_MS = "900000";
+
+    expect(loadConfig().containersResolver).toEqual({
+      mode: "native",
+      path: "/opt/containers-resolver",
+      version: "2.3.30",
+      platform: "linux/arm64",
+      timeoutMs: 900_000,
+    });
+  });
+
+  it("requires CHECKMARX_CONTAINERS_RESOLVER_PATH for native mode", () => {
+    process.env.CHECKMARX_CONTAINERS_RESOLVER = "native";
+
+    expect(() => loadConfig()).toThrow("CHECKMARX_CONTAINERS_RESOLVER_PATH is required");
+  });
+
+  it("rejects an unknown containers resolver mode and an unsafe version", () => {
+    process.env.CHECKMARX_CONTAINERS_RESOLVER = "podman";
+    process.env.CHECKMARX_CONTAINERS_RESOLVER_VERSION = "2.3.27; rm -rf /";
+
+    try {
+      loadConfig();
+      throw new Error("should have thrown");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain("CHECKMARX_CONTAINERS_RESOLVER must be 'docker' or 'native'");
+      expect(message).toContain("must be an ast-cli tag");
+    }
+  });
+
   it("includes all validation issues in error message", () => {
     process.env.CHECKMARX_API_KEY = undefined;
     process.env.CHECKMARX_TENANT = undefined;
